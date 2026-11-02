@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>タブ録画・録音</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>タブ録画・録音</h1>
+    <p class="lead">再生中のブラウザタブ（YouTube など）の映像と音声を、そのまま録画・録音します。</p>
+
+    <section class="panel">
+      <fieldset>
+        <legend>モード</legend>
+        <label><input type="radio" name="mode" value="video" checked> 録画（映像＋音声）</label>
+        <label><input type="radio" name="mode" value="audio"> 録音（音声のみ）</label>
+      </fieldset>
+
+      <div class="row">
+        <label>形式
+          <select id="format"></select>
+        </label>
+        <label id="qualityWrap">画質
+          <select id="quality">
+            <option value="2500000">標準（2.5 Mbps）</option>
+            <option value="5000000" selected>高画質（5 Mbps）</option>
+            <option value="8000000">最高画質（8 Mbps）</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="buttons">
+        <button id="start" class="primary">● 録画開始</button>
+        <button id="pause" disabled>一時停止</button>
+        <button id="stop" disabled>■ 停止</button>
+      </div>
+
+      <p id="status" class="status">待機中</p>
+    </section>
+
+    <section class="panel" id="previewPanel" hidden>
+      <h2>プレビュー</h2>
+      <video id="preview" controls playsinline></video>
+      <audio id="audioPreview" controls hidden></audio>
+      <a id="download" class="primary button">ダウンロード</a>
+    </section>
+
+    <details class="panel help">
+      <summary>使い方</summary>
+      <ol>
+        <li>別のタブで YouTube の動画を開きます。</li>
+        <li>このページで「録画開始」を押します。</li>
+        <li>共有画面の選択で<strong>「Chrome タブ」</strong>を選び、YouTube のタブを選択します。</li>
+        <li><strong>「タブの音声も共有する」をオン</strong>にして「共有」を押します。</li>
+        <li>YouTube のタブで動画を再生します。</li>
+        <li>終わったら「停止」を押すか、共有を停止します。プレビューとダウンロードボタンが表示されます。</li>
+      </ol>
+      <p>※ 動作確認は Chrome / Edge のパソコン版で行っています。Firefox と Safari では、タブの音声を記録できない場合があります。スマートフォンでは使えません。</p>
+      <p>※ 録画したものは個人で楽しむ範囲でお使いください。再配布やアップロードは著作権侵害になります。</p>
+    </details>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
