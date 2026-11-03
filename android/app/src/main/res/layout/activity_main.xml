@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="録画・録音"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:alpha="0.7"
+            android:text="スマホの画面に映っている映像と、アプリから出ている音を記録します。YouTube を見ながら使えます。" />
+
+        <TextView style="@style/SectionLabel" android:text="モード" />
+        <RadioGroup
+            android:id="@+id/modeGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+            <RadioButton
+                android:id="@+id/modeVideo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="録画（映像＋音声）　MP4" />
+            <RadioButton
+                android:id="@+id/modeAudio"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="録音（音声のみ）　M4A" />
+        </RadioGroup>
+
+        <LinearLayout
+            android:id="@+id/videoOptions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView style="@style/SectionLabel" android:text="画面の向き" />
+            <RadioGroup
+                android:id="@+id/orientationGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <RadioButton
+                    android:id="@+id/orientationLandscape"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="横向き（YouTube を全画面で見るとき）" />
+                <RadioButton
+                    android:id="@+id/orientationPortrait"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="縦向き" />
+            </RadioGroup>
+
+            <TextView style="@style/SectionLabel" android:text="画質" />
+            <RadioGroup
+                android:id="@+id/qualityGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+                <RadioButton
+                    android:id="@+id/qualityHigh"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="高画質（1080p）" />
+                <RadioButton
+                    android:id="@+id/qualityStandard"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="標準（720p・ファイルが小さい）" />
+            </RadioGroup>
+        </LinearLayout>
+
+        <CheckBox
+            android:id="@+id/openYoutube"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:checked="true"
+            android:text="開始したら YouTube を開く" />
+
+        <Button
+            android:id="@+id/startButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:backgroundTint="@color/accent"
+            android:text="● 録画開始"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/stopButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:enabled="false"
+            android:text="■ 停止して保存" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="待機中"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/openLastButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="保存したファイルを開く"
+            android:visibility="gone" />
+
+        <TextView style="@style/SectionLabel" android:text="使い方" />
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:alpha="0.8"
+            android:lineSpacingMultiplier="1.2"
+            android:text="1. 「録画開始」を押します。\n2. 確認画面で「開始」を押します（Android 14 以降は「1つのアプリ」で YouTube を選ぶと、ほかの通知などが映りません）。\n3. YouTube で動画を再生します。\n4. 終わったら、通知の「停止」を押すか、このアプリに戻って「停止して保存」を押します。\n\n録画は「Movies/ScreenRecorder」、録音は「Music/ScreenRecorder」に保存され、ギャラリーやファイルアプリから見られます。\n\n※ アプリによっては音の録音を許可しておらず、無音になることがあります。そのときは Chrome で YouTube を開いて試してください。\n※ 録画・録音したものは個人で楽しむ範囲で使ってください。再配布や再アップロードは著作権侵害になります。" />
+    </LinearLayout>
+</ScrollView>
