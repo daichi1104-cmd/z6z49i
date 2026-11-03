@@ -15,9 +15,11 @@ Android 10 以降。他のアプリの音を録音する仕組みが Android 10 
 
 ## APK の入手とインストール
 
-1. GitHub のリポジトリの「Actions」タブで「Android APK」の最新の実行を開く
-2. 下の「Artifacts」から `ScreenRecorder-apk` をダウンロードし、ZIP を展開して `app-debug.apk` を取り出す
-3. APK をスマホに送り、開いてインストールする（「提供元不明のアプリ」を許可するよう求められたら許可する）
+1. スマホのブラウザ（Chrome など）で次のリンクを開くと、APK がダウンロードされます
+   https://github.com/daichi1104-cmd/z6z49i/releases/latest/download/ScreenRecorder.apk
+2. ダウンロードした `ScreenRecorder.apk` を開いてインストールする（「提供元不明のアプリ」を許可するよう求められたら許可する）
+
+リンクがうまく開けないときは、リポジトリの「Releases」から最新のものを開き、`ScreenRecorder.apk` をタップしてください。
 
 ## 使い方
 

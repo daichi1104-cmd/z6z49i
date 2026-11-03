@@ -7,6 +7,9 @@ on:
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,3 +35,18 @@ jobs:
         with:
           name: ScreenRecorder-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      # スマホのブラウザから APK を直接ダウンロードできるように Releases に置く
+      - name: Prepare APK for release
+        run: cp app/build/outputs/apk/debug/app-debug.apk ScreenRecorder.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-build-${{ github.run_number }}
+          name: Android アプリ（ビルド ${{ github.run_number }}）
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: android/ScreenRecorder.apk
+          body: |
+            スマホでこのページを開き、下の「ScreenRecorder.apk」をタップするとダウンロードできます。
+            ダウンロードしたファイルを開いてインストールしてください（「提供元不明のアプリ」の許可を求められたら許可します）。
