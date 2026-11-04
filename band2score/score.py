@@ -8,9 +8,10 @@ import subprocess
 from pathlib import Path
 
 import pretty_midi
-from music21 import (chord, clef, instrument, key, metadata, meter, note, percussion,
+from music21 import (chord, clef, harmony, instrument, key, metadata, meter, note, percussion,
                      stream, tempo as m21tempo)
 
+from .chords import NO_CHORD
 from .models import PART_ORDER, STEM_SETTINGS, NoteEvent, Transcription
 from .transcribe import HIHAT, KICK, SNARE
 
@@ -201,6 +202,8 @@ def build_score(tr: Transcription, title: str, grid: float = 0.25) -> stream.Sco
     parts = list(score.parts)
     if parts:
         parts[0].insert(0, m21tempo.MetronomeMark(number=round(tr.tempo)))
+        if tr.chords and parts[0].partName != "Drums":
+            _add_chord_symbols(parts[0], tr, shift, ks)
         # 全パートの長さを最後の小節線までそろえる
         end = max(p.highestTime for p in parts)
         end = math.ceil(end / BEATS_PER_BAR) * BEATS_PER_BAR or BEATS_PER_BAR
@@ -214,6 +217,71 @@ def build_score(tr: Transcription, title: str, grid: float = 0.25) -> stream.Sco
             if p.partName != "Drums":
                 p.makeAccidentals(inPlace=True, overrideStatus=True)
     return score
+
+
+def _uses_flats(ks: key.Key | None) -> bool:
+    return ks is not None and ks.sharps < 0
+
+
+def _chord_beats(tr: Transcription, shift: float) -> list[tuple[float, object]]:
+    """コードの開始位置を拍にそろえて (拍, ChordEvent) のリストにする。"""
+    out: list[tuple[float, object]] = []
+    for c in tr.chords:
+        beat = _quantize(_to_beats(c.start, tr, shift), 1.0)
+        if beat < 0:
+            beat = 0.0
+        if out and out[-1][0] == beat:
+            out[-1] = (beat, c)  # 同じ拍に重なったら後のコードを残す
+        else:
+            out.append((beat, c))
+    return out
+
+
+def _add_chord_symbols(part: stream.Part, tr: Transcription, shift: float,
+                       ks: key.Key | None) -> None:
+    """一番上のパートの上にコードネームを書く。"""
+    flats = _uses_flats(ks)
+    for beat, c in _chord_beats(tr, shift):
+        if c.quality == NO_CHORD:
+            symbol = harmony.NoChord()
+        else:
+            symbol = harmony.ChordSymbol(c.music21_figure(flats))
+            symbol.chordKindStr = c.quality  # 表示を「maj7」「m7」などにそろえる
+        symbol.writeAsChord = False
+        part.insert(beat, symbol)
+
+
+def chord_spelling_uses_flats(tr: Transcription) -> bool:
+    """コード名をフラットで書くか（調号がフラット系のとき）。"""
+    return _uses_flats(_estimate_key(tr))
+
+
+def write_chord_chart(tr: Transcription, path: Path) -> Path | None:
+    """小節ごとのコード表（テキスト）を書き出す。例: | C | Am | F G | ..."""
+    if not tr.chords:
+        return None
+    shift = _bar_shift(tr)
+    flats = chord_spelling_uses_flats(tr)
+    bars: dict[int, list[str]] = {}
+    for beat, c in _chord_beats(tr, shift):
+        bars.setdefault(int(beat // BEATS_PER_BAR), []).append(c.label(flats))
+    if not bars:
+        return None
+    cells = []
+    current = ""
+    for bar in range(max(bars) + 1):
+        if bar in bars:
+            current = bars[bar][-1]
+            cells.append(" ".join(bars[bar]))
+        else:
+            cells.append(current)  # 前の小節と同じコードが続く
+    width = max(8, max(len(c) for c in cells))
+    lines = [f"Tempo: {round(tr.tempo)} BPM   Time: {BEATS_PER_BAR}/4", ""]
+    for first in range(0, len(cells), 4):
+        row = cells[first:first + 4]
+        lines.append(f"{first + 1:>3} |" + "|".join(f" {c:<{width}} " for c in row) + "|")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
 
 
 def write_musicxml(score: stream.Score, path: Path) -> Path:

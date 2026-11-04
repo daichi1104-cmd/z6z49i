@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from . import score as score_mod
+from .chords import detect_chords
 from .models import STEM_SETTINGS, Transcription
 from .separate import DEFAULT_MODEL, is_silent, separate
 from .transcribe import estimate_tempo, transcribe_drums, transcribe_pitched
@@ -30,6 +31,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--tempo", type=float, default=None, help="テンポ（BPM）を手で指定する")
     p.add_argument("--grid", type=int, choices=[4, 8, 16, 32], default=16,
                    help="リズムをそろえる細かさ（16 = 16分音符。既定: 16）")
+    p.add_argument("--no-chords", action="store_true", help="コードネームを付けない")
+    p.add_argument("--chord-beats", type=int, choices=[1, 2, 4], default=1,
+                   help="コードを判定する細かさ（拍）。コードが細かく変わりすぎるときは 2 や 4 に（既定: 1）")
     p.add_argument("--device", default=None, help="cpu / cuda（省略時は自動）")
     return p.parse_args(argv)
 
@@ -55,8 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         stems = separate(audio, out / "stems", model=args.model, device=args.device)
 
     # 2. テンポ推定
-    est_tempo, beat_offset = estimate_tempo(audio)
-    tempo = args.tempo or est_tempo
+    tempo, beat_offset = estimate_tempo(audio, tempo_hint=args.tempo)
     log.info("[2/4] テンポ: %.1f BPM（最初の拍 %.2f 秒）", tempo, beat_offset)
 
     # 3. 採譜
@@ -78,16 +81,31 @@ def main(argv: list[str] | None = None) -> int:
         log.error("音符が 1つも見つかりませんでした。")
         return 1
 
+    # 3.5 コード推定（ギター・ピアノ・ベースなど和音の楽器の音から）
+    if not args.no_chords:
+        # ベースは倍音が和音の判定を乱すので混ぜず、ルートの判定だけに使う
+        harmonic = [p for name, p in stems.items()
+                    if name in ("guitar", "piano", "other") and not is_silent(p)]
+        tr.chords = detect_chords(harmonic or [audio], tempo, beat_offset,
+                                  bass_path=stems.get("bass"), bass_notes=tr.parts.get("bass"),
+                                  beats_per_chord=args.chord_beats)
+        flats = score_mod.chord_spelling_uses_flats(tr)
+        log.info("[3/4] chords  %d 個（%s …）", len(tr.chords),
+                 " ".join(c.label(flats) for c in tr.chords[:8]))
+
     # 4. 楽譜を書き出す
     log.info("[4/4] 楽譜を作っています…")
     midi = score_mod.write_midi(tr, out / f"{audio.stem}.mid")
     sc = score_mod.build_score(tr, title=audio.stem, grid=4 / args.grid)
     xml = score_mod.write_musicxml(sc, out / f"{audio.stem}.musicxml")
     pdf = score_mod.write_pdf(xml, out / f"{audio.stem}.pdf")
+    chart = score_mod.write_chord_chart(tr, out / f"{audio.stem}_chords.txt")
 
     log.info("\n完了しました:")
     log.info("  楽譜 (MusicXML): %s", xml)
     log.info("  MIDI            : %s", midi)
+    if chart:
+        log.info("  コード表        : %s", chart)
     if pdf:
         log.info("  PDF             : %s", pdf)
     else:

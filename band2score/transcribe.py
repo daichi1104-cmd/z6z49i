@@ -14,28 +14,46 @@ from .models import NoteEvent, StemSettings
 KICK, SNARE, HIHAT = 36, 38, 42
 
 
-def estimate_tempo(audio_path: Path) -> tuple[float, float]:
-    """テンポ（BPM）と最初の拍の位置（秒）を推定する。"""
+def estimate_tempo(audio_path: Path, tempo_hint: float | None = None) -> tuple[float, float]:
+    """テンポ（BPM）と最初の拍の位置（秒）を推定する。
+
+    tempo_hint を渡すと、そのテンポで拍の位置だけを求める。
+    """
     y, sr = librosa.load(audio_path, sr=22050, mono=True)
-    tempo, beats = librosa.beat.beat_track(y=y, sr=sr, units="time")
-    tempo = float(np.atleast_1d(tempo)[0])
-    if len(beats) >= 8:
-        # 検出した拍の位置に直線を当てはめて、テンポと拍の位置を細かく求める
-        idx = np.arange(len(beats))
-        period, intercept = np.polyfit(idx, beats, 1)
-        tempo = 60.0 / period
-        beats = intercept + idx * period
-    if tempo <= 0:
-        tempo = 120.0
-    # 速すぎ・遅すぎる推定は倍テン/ハーフテンとして直す
-    while tempo < 70:
-        tempo *= 2
-    while tempo > 180:
-        tempo /= 2
-    first_beat = float(beats[0]) if len(beats) else 0.0
-    # 最初の拍が遅い（イントロに無音がある等）ときは 1拍の長さで割った余りにそろえる
-    first_beat %= 60.0 / tempo
-    return tempo, first_beat
+    hop = 256
+    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
+
+    if tempo_hint:
+        tempo = float(tempo_hint)
+    else:
+        tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr,
+                                               hop_length=hop, units="time")
+        tempo = float(np.atleast_1d(tempo)[0])
+        if len(beats) >= 8:
+            # 検出した拍の位置に直線を当てはめて、テンポを細かく求める
+            period, _ = np.polyfit(np.arange(len(beats)), beats, 1)
+            tempo = 60.0 / period
+        if tempo <= 0:
+            tempo = 120.0
+        # 速すぎ・遅すぎる推定は倍テン/ハーフテンとして直す
+        while tempo < 70:
+            tempo *= 2
+        while tempo > 180:
+            tempo /= 2
+    return tempo, _beat_phase(onset_env, sr, hop, 60.0 / tempo)
+
+
+def _beat_phase(onset_env: np.ndarray, sr: int, hop: int, period: float) -> float:
+    """拍の格子（period 秒間隔）を少しずつずらし、音の立ち上がりと一番よく重なる位置を返す。"""
+    times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr, hop_length=hop)
+    best, best_score = 0.0, -1.0
+    for phase in np.arange(0.0, period, 0.005):
+        grid = np.arange(phase, times[-1], period)
+        idx = np.searchsorted(times, grid).clip(0, len(onset_env) - 1)
+        score = float(onset_env[idx].sum())
+        if score > best_score:
+            best, best_score = float(phase), score
+    return best
 
 
 def transcribe_pitched(audio_path: Path, settings: StemSettings) -> list[NoteEvent]:
@@ -67,10 +85,15 @@ def transcribe_pitched(audio_path: Path, settings: StemSettings) -> list[NoteEve
     return notes
 
 
+# 倍音として誤検出されやすい音程（半音数）: オクターブ、オクターブ+5度、2オクターブ
+OVERTONE_INTERVALS = (12, 19, 24)
+
+
 def make_monophonic(notes: list[NoteEvent]) -> list[NoteEvent]:
     """同時に鳴る音を 1つに絞る（単音楽器用）。
 
     同じ時刻に始まる音は一番強いものを残し、前の音が次の音にかぶるときは切る。
+    ただし、鳴っている音の倍音にあたる高さの音は誤検出として捨てる。
     """
     if not notes:
         return []
@@ -80,7 +103,10 @@ def make_monophonic(notes: list[NoteEvent]) -> list[NoteEvent]:
         if result and abs(note.start - result[-1].start) < 0.03:
             continue  # ほぼ同時に始まる弱い音（倍音の誤検出が多い）は捨てる
         if result and result[-1].end > note.start:
-            result[-1].end = note.start
+            prev = result[-1]
+            if note.pitch - prev.pitch in OVERTONE_INTERVALS and note.velocity <= prev.velocity * 1.2:
+                continue  # 鳴っている音の倍音（オクターブ上など）を拾っただけ
+            prev.end = note.start
         result.append(NoteEvent(note.start, note.end, note.pitch, note.velocity))
     return [n for n in result if n.end - n.start > 0.03]
 

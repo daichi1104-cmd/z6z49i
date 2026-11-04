@@ -65,3 +65,4 @@ class Transcription:
     tempo: float
     beat_offset: float  # 最初の拍の位置（秒）。これを 1小節目の頭にする
     parts: dict[str, list[NoteEvent]] = field(default_factory=dict)
+    chords: list = field(default_factory=list)  # list[chords.ChordEvent]
