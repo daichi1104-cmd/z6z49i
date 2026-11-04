@@ -1,0 +1,17 @@
+# 音源分離
+demucs>=4.0
+torch
+torchaudio
+# 音声処理・採譜
+librosa>=0.10
+soundfile
+numpy
+scipy
+onnxruntime
+pretty_midi
+mir_eval
+resampy
+# 楽譜生成
+music21>=9
+# basic-pitch 本体は依存関係が古い（numpy<1.24 など）ため、別に --no-deps で入れる:
+#   pip install --no-deps basic-pitch

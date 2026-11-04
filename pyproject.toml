@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "band2score"
+version = "0.1.0"
+description = "バンド音源を楽器ごとの楽譜（MusicXML・MIDI）に自動変換するツール"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+band2score = "band2score.cli:main"
+
+[tool.setuptools]
+packages = ["band2score"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
