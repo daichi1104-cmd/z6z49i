@@ -1,0 +1,347 @@
+<title>QR画像ログイン</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+1p:wght@400;500;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column, three steps stacked like a phone checklist */
+:root{
+  --bg:#eef1f6; --surface:#ffffff; --fg:#1b2230; --muted:#5d6779; --line:#d6dce6;
+  --accent:#2156d9; --accent-fg:#ffffff; --ok:#13804a; --ok-bg:#e3f4ea; --bad:#b4232a; --bad-bg:#fbe6e7;
+  --code-bg:#f4f6fa;
+  --f-display:"M PLUS 1p","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-body:"M PLUS 1p","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12161e; --surface:#1b212c; --fg:#e7ebf2; --muted:#9aa4b5; --line:#2e3644;
+  --accent:#6f97ff; --accent-fg:#0d1320; --ok:#5fd394; --ok-bg:#163126; --bad:#ff8a8f; --bad-bg:#3a1c1f;
+  --code-bg:#151a23; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12161e; --surface:#1b212c; --fg:#e7ebf2; --muted:#9aa4b5; --line:#2e3644;
+  --accent:#6f97ff; --accent-fg:#0d1320; --ok:#5fd394; --ok-bg:#163126; --bad:#ff8a8f; --bad-bg:#3a1c1f;
+  --code-bg:#151a23; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:15px/1.7 var(--f-body)}
+.wrap{max-width:640px;margin:0 auto;padding-block:20px 48px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:18px}
+header h1{font:800 1.6rem/1.3 var(--f-display);margin:0;text-wrap:balance}
+header p{margin:.4em 0 0;color:var(--muted)}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.step h2{font:700 1.1rem/1.4 var(--f-display);margin:0;display:flex;gap:10px;align-items:center}
+.num{flex:none;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font:700 .9rem var(--f-mono)}
+.step p{margin:0}
+.muted{color:var(--muted);font-size:.9rem}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:22px 14px;text-align:center;cursor:pointer;display:flex;flex-direction:column;gap:8px;align-items:center}
+.drop:hover,.drop.over{border-color:var(--accent)}
+.drop input{position:absolute;width:1px;height:1px;opacity:0}
+.btn{appearance:none;border:0;border-radius:999px;background:var(--accent);color:var(--accent-fg);font:700 1rem var(--f-body);padding:12px 22px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
+.btn:focus-visible,.drop:focus-within{outline:3px solid var(--accent);outline-offset:2px}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.preview{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start}
+.preview figure{margin:0;display:flex;flex-direction:column;gap:4px;min-width:0}
+.preview img{max-height:220px;border-radius:8px;border:1px solid var(--line);background:#fff}
+.preview figcaption{font-size:.8rem;color:var(--muted)}
+.status{border-radius:10px;padding:10px 12px;font-weight:500}
+.status.ok{background:var(--ok-bg);color:var(--ok)}
+.status.bad{background:var(--bad-bg);color:var(--bad)}
+.status.busy{background:var(--code-bg);color:var(--muted)}
+.result{font:400 .85rem/1.6 var(--f-mono);background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;word-break:break-all;white-space:pre-wrap;margin:0;user-select:all}
+textarea{width:100%;box-sizing:border-box;min-height:110px;font:400 .75rem/1.5 var(--f-mono);background:var(--code-bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px;resize:vertical}
+ol.how{margin:0;padding-left:1.4em;display:flex;flex-direction:column;gap:6px}
+details summary{cursor:pointer;font-weight:700}
+.toast{font-size:.85rem;color:var(--ok);min-height:1.2em}
+@media (prefers-reduced-motion:no-preference){.btn{transition:transform .1s}.btn:active{transform:scale(.97)}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>QR画像ログイン</h1>
+    <p>カメラでうまく読めないQRコードを、すでに撮ってある写真から読み取ります。画像は端末の中だけで処理され、どこにも送信されません。</p>
+  </header>
+
+  <section class="step" aria-labelledby="s1">
+    <h2 id="s1"><span class="num">1</span>QRの写真を選ぶ</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="image/*">
+      <span class="btn">画像を選ぶ</span>
+      <span class="muted">ギャラリーのスクリーンショットや写真でOK。ここに貼り付け・ドロップもできます。</span>
+    </label>
+    <div class="preview" id="preview" hidden>
+      <figure><img id="srcImg" alt="選んだ画像"><figcaption>選んだ画像</figcaption></figure>
+      <figure id="cleanFig" hidden><img id="cleanImg" alt="読み取った内容から作り直したQRコード"><figcaption>作り直したくっきりQR</figcaption></figure>
+    </div>
+    <div class="status busy" id="status" hidden></div>
+  </section>
+
+  <section class="step" aria-labelledby="s2">
+    <h2 id="s2"><span class="num">2</span>中身を開く</h2>
+    <p class="muted" id="s2empty">画像を選ぶと、QRに入っている文字列（ログイン用URLなど）がここに出ます。</p>
+    <div id="s2body" hidden>
+      <pre class="result" id="result"></pre>
+      <div class="row">
+        <a class="btn" id="openBtn" href="#" target="_blank" rel="noopener" hidden>このURLを開く</a>
+        <button class="btn ghost" id="copyBtn" type="button">コピー</button>
+      </div>
+      <div class="toast" id="copyToast" aria-live="polite"></div>
+      <p class="muted">URLなら、ふだんログインに使っているブラウザ（Chrome）で開けばそのままログインできることが多いです。開けない場合はコピーしてChromeのアドレスバーに貼り付けてください。</p>
+    </div>
+  </section>
+
+  <section class="step" aria-labelledby="s3">
+    <h2 id="s3"><span class="num">3</span>URLで開けないとき：カメラを画像に差し替える</h2>
+    <p>サイトの読み取り画面が自分のカメラ映像しか受け付けない場合は、下のブックマークレットを使います。サイトがカメラを要求したとき、実際のカメラの代わりに選んだ画像を映像として渡します。</p>
+    <textarea id="bm" readonly spellcheck="false" aria-label="ブックマークレットのコード"></textarea>
+    <div class="row"><button class="btn" id="bmCopy" type="button">コードをコピー</button></div>
+    <div class="toast" id="bmToast" aria-live="polite"></div>
+    <details open>
+      <summary>Android の Chrome での使い方</summary>
+      <ol class="how">
+        <li>Chromeで適当なページを開き、メニュー（︙）の☆でブックマークに追加します。</li>
+        <li>ブックマーク一覧でそのブックマークを編集し、名前を <b>QR画像</b>、URL欄を上のコードに丸ごと置き換えて保存します。</li>
+        <li>ログインしたいサイトを開き、<b>QRの読み取り画面を開く前の</b>ページで、アドレスバーに「QR画像」と入力し、候補に出る☆付きのブックマークをタップします。</li>
+        <li>右下に「QR画像を選ぶ」ボタンが出るのでタップして、QRの写真を選びます。</li>
+        <li>ボタンが「差し替え済み」になったら、サイトの読み取り画面を開きます。映像の代わりに写真が映り、読み取られます。</li>
+      </ol>
+      <p class="muted">読み取り画面がすでに開いている場合も、そのまま実行すれば表示中の映像を差し替えます。うまくいかなければ読み取り画面をいったん閉じて開き直してください（ページを再読み込みすると差し替えは解除されます）。手順1で作り直した「くっきりQR」を長押しで保存し、それを選ぶとさらに確実です。</p>
+    </details>
+  </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var statusEl = $('status');
+
+  function setStatus(kind, text){
+    statusEl.hidden = false;
+    statusEl.className = 'status ' + kind;
+    statusEl.textContent = text;
+  }
+
+  // ---------- decoding ----------
+  function loadImage(file){
+    return new Promise(function(res, rej){
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function(){ res(img); };
+      img.onerror = function(){ rej(new Error('画像を開けませんでした')); };
+      img.src = url;
+    });
+  }
+
+  function toCanvas(img, maxSide){
+    var s = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    var w = Math.max(1, Math.round(img.naturalWidth * s)), h = Math.max(1, Math.round(img.naturalHeight * s));
+    var c = document.createElement('canvas'); c.width = w; c.height = h;
+    var x = c.getContext('2d', {willReadFrequently:true});
+    x.fillStyle = '#fff'; x.fillRect(0,0,w,h);
+    x.drawImage(img, 0, 0, w, h);
+    return c;
+  }
+
+  function gray(data){
+    var g = new Uint8ClampedArray(data.length/4);
+    for (var i=0,j=0;i<data.length;i+=4,j++) g[j] = (data[i]*299 + data[i+1]*587 + data[i+2]*114)/1000;
+    return g;
+  }
+  function fromGray(g, out){
+    for (var i=0,j=0;j<g.length;i+=4,j++){ out[i]=out[i+1]=out[i+2]=g[j]; out[i+3]=255; }
+    return out;
+  }
+  function stretch(g){
+    var hist = new Uint32Array(256); for (var i=0;i<g.length;i++) hist[g[i]]++;
+    var lo=0, hi=255, acc=0, cut=g.length*0.01;
+    for (lo=0;lo<255;lo++){ acc+=hist[lo]; if(acc>cut) break; }
+    acc=0; for (hi=255;hi>0;hi--){ acc+=hist[hi]; if(acc>cut) break; }
+    var r = Math.max(1, hi-lo), o = new Uint8ClampedArray(g.length);
+    for (var k=0;k<g.length;k++) o[k] = (g[k]-lo)*255/r;
+    return o;
+  }
+  function otsu(g){
+    var hist = new Float64Array(256); for (var i=0;i<g.length;i++) hist[g[i]]++;
+    var total=g.length, sum=0; for (var t=0;t<256;t++) sum+=t*hist[t];
+    var sumB=0, wB=0, best=0, th=127;
+    for (var t2=0;t2<256;t2++){
+      wB+=hist[t2]; if(!wB) continue; var wF=total-wB; if(!wF) break;
+      sumB+=t2*hist[t2]; var mB=sumB/wB, mF=(sum-sumB)/wF, v=wB*wF*(mB-mF)*(mB-mF);
+      if(v>best){best=v; th=t2;}
+    }
+    var o = new Uint8ClampedArray(g.length); for (var k=0;k<g.length;k++) o[k] = g[k]>th?255:0;
+    return o;
+  }
+  function sharpen(g, w, h){
+    var o = new Uint8ClampedArray(g.length);
+    for (var y=0;y<h;y++) for (var x=0;x<w;x++){
+      var i=y*w+x;
+      if(x===0||y===0||x===w-1||y===h-1){ o[i]=g[i]; continue; }
+      o[i] = 5*g[i] - g[i-1] - g[i+1] - g[i-w] - g[i+w];
+    }
+    return o;
+  }
+
+  function tryJsQR(canvas){
+    if (typeof jsQR !== 'function') return null;
+    var x = canvas.getContext('2d', {willReadFrequently:true});
+    var w = canvas.width, h = canvas.height;
+    var id = x.getImageData(0,0,w,h);
+    var r = jsQR(id.data, w, h, {inversionAttempts:'attemptBoth'});
+    if (r) return r.data;
+    var g = gray(id.data);
+    var variants = [stretch(g), sharpen(stretch(g), w, h), otsu(stretch(g)), otsu(sharpen(g, w, h))];
+    for (var v=0; v<variants.length; v++){
+      var buf = fromGray(variants[v], new Uint8ClampedArray(id.data.length));
+      r = jsQR(buf, w, h, {inversionAttempts:'attemptBoth'});
+      if (r) return r.data;
+    }
+    return null;
+  }
+
+  async function tryNative(img){
+    if (!('BarcodeDetector' in window)) return null;
+    try{
+      var fmts = await BarcodeDetector.getSupportedFormats();
+      if (fmts.indexOf('qr_code') < 0) return null;
+      var det = new BarcodeDetector({formats:['qr_code']});
+      var sources = [img, toCanvas(img, 1600), toCanvas(img, 800)];
+      for (var i=0;i<sources.length;i++){
+        var found = await det.detect(sources[i]);
+        if (found && found.length) return found[0].rawValue;
+      }
+    }catch(e){}
+    return null;
+  }
+
+  async function decode(img){
+    var native = await tryNative(img);
+    if (native) return native;
+    var sizes = [1000, 1600, 700, 2400, 450];
+    for (var i=0;i<sizes.length;i++){
+      await new Promise(function(r){ setTimeout(r, 0); });
+      var out = tryJsQR(toCanvas(img, sizes[i]));
+      if (out) return out;
+    }
+    // Try the four quarters and the center in case the QR is small in a large photo.
+    var c = toCanvas(img, 2400), W=c.width, H=c.height;
+    var crops = [[W*.2,H*.2,W*.6,H*.6],[0,0,W*.6,H*.6],[W*.4,0,W*.6,H*.6],[0,H*.4,W*.6,H*.6],[W*.4,H*.4,W*.6,H*.6]];
+    for (var k=0;k<crops.length;k++){
+      await new Promise(function(r){ setTimeout(r, 0); });
+      var cc = document.createElement('canvas'), q = crops[k];
+      cc.width = Math.round(q[2]); cc.height = Math.round(q[3]);
+      cc.getContext('2d', {willReadFrequently:true}).drawImage(c, q[0], q[1], q[2], q[3], 0, 0, cc.width, cc.height);
+      var o2 = tryJsQR(cc);
+      if (o2) return o2;
+    }
+    return null;
+  }
+
+  // ---------- clean QR ----------
+  function renderClean(text){
+    var fig = $('cleanFig');
+    if (typeof QRCode !== 'function'){ fig.hidden = true; return; }
+    var holder = document.createElement('div');
+    try{
+      new QRCode(holder, {text:text, width:512, height:512, correctLevel:QRCode.CorrectLevel.M});
+      var cv = holder.querySelector('canvas');
+      if (!cv){ fig.hidden = true; return; }
+      // add a quiet zone
+      var pad = 48, out = document.createElement('canvas');
+      out.width = cv.width + pad*2; out.height = cv.height + pad*2;
+      var x = out.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0,0,out.width,out.height);
+      x.imageSmoothingEnabled = false; x.drawImage(cv, pad, pad);
+      $('cleanImg').src = out.toDataURL('image/png');
+      fig.hidden = false;
+    }catch(e){ fig.hidden = true; }
+  }
+
+  // ---------- flow ----------
+  async function handle(file){
+    if (!file || !/^image\//.test(file.type)){ setStatus('bad','画像ファイルを選んでください。'); return; }
+    $('preview').hidden = false; $('cleanFig').hidden = true;
+    setStatus('busy','読み取り中…');
+    try{
+      var img = await loadImage(file);
+      $('srcImg').src = img.src;
+      var text = await decode(img);
+      if (!text){
+        setStatus('bad','QRコードが見つかりませんでした。QRの部分だけを切り抜いた画像や、もう少し明るくピントの合った写真で試してください。');
+        return;
+      }
+      setStatus('ok','読み取れました。');
+      showResult(text);
+      renderClean(text);
+    }catch(e){
+      setStatus('bad', e.message || '読み取りに失敗しました。');
+    }
+  }
+
+  function showResult(text){
+    $('s2empty').hidden = true; $('s2body').hidden = false;
+    $('result').textContent = text;
+    var open = $('openBtn');
+    if (/^https?:\/\//i.test(text.trim())){ open.href = text.trim(); open.hidden = false; }
+    else { open.hidden = true; }
+    $('copyToast').textContent = '';
+  }
+
+  function copy(text, toastEl, fallbackEl){
+    var done = function(){ toastEl.textContent = 'コピーしました。'; };
+    var fail = function(){
+      if (fallbackEl){ fallbackEl.focus(); if (fallbackEl.select) fallbackEl.select(); else { var r=document.createRange(); r.selectNodeContents(fallbackEl); var s=getSelection(); s.removeAllRanges(); s.addRange(r);} }
+      toastEl.textContent = 'コピーできなかったので選択しました。長押しでコピーしてください。';
+    };
+    try{ navigator.clipboard.writeText(text).then(done, fail); }catch(e){ fail(); }
+  }
+
+  $('file').addEventListener('change', function(e){ handle(e.target.files[0]); e.target.value=''; });
+  var drop = $('drop');
+  drop.addEventListener('dragover', function(e){ e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', function(){ drop.classList.remove('over'); });
+  drop.addEventListener('drop', function(e){ e.preventDefault(); drop.classList.remove('over'); handle(e.dataTransfer.files[0]); });
+  document.addEventListener('paste', function(e){
+    var items = (e.clipboardData && e.clipboardData.files) || [];
+    if (items.length) handle(items[0]);
+  });
+  $('copyBtn').addEventListener('click', function(){ copy($('result').textContent, $('copyToast'), $('result')); });
+
+  // ---------- bookmarklet ----------
+  var bmSrc = function(){
+    var d=document;
+    if(window.__qrImgBtn){window.__qrImgBtn.click();return;}
+    var inp=d.createElement('input');inp.type='file';inp.accept='image/*';
+    var b=d.createElement('button');b.textContent='QR画像を選ぶ';
+    b.style.cssText='position:fixed;z-index:2147483647;right:12px;bottom:16px;padding:14px 20px;border:0;border-radius:28px;background:#2156d9;color:#fff;font:bold 16px sans-serif;box-shadow:0 3px 10px rgba(0,0,0,.4)';
+    window.__qrImgBtn=b;
+    b.onclick=function(){inp.click();};
+    inp.onchange=function(){
+      var f=inp.files[0];if(!f)return;
+      var img=new Image();
+      img.onload=function(){
+        var m=Math.max(img.width,img.height),s=Math.min(1,1280/m);
+        var W=Math.round(img.width*s/0.8),H=Math.round(img.height*s/0.8);
+        W=Math.max(W,640);H=Math.max(H,480);
+        var c=d.createElement('canvas');c.width=W;c.height=H;
+        var x=c.getContext('2d');
+        var draw=function(){x.fillStyle='#fff';x.fillRect(0,0,W,H);var k=Math.min(W/img.width,H/img.height)*0.8,w=img.width*k,h=img.height*k;x.drawImage(img,(W-w)/2,(H-h)/2,w,h);};
+        draw();clearInterval(window.__qrImgTimer);window.__qrImgTimer=setInterval(draw,100);
+        var md=navigator.mediaDevices;
+        if(md){md.getUserMedia=function(){draw();return Promise.resolve(c.captureStream(15));};}
+        var vs=d.querySelectorAll('video');
+        for(var i=0;i<vs.length;i++){try{vs[i].srcObject=c.captureStream(15);vs[i].play();}catch(e){}}
+        b.textContent='差し替え済み：読み取り画面を開いてください';
+        b.style.background='#13804a';
+      };
+      img.src=URL.createObjectURL(f);
+    };
+    d.body.appendChild(b);
+  }.toString();
+  var body = bmSrc.slice(bmSrc.indexOf('{')+1, bmSrc.lastIndexOf('}'))
+    .split('\n').map(function(l){ return l.trim(); }).join('');
+  var bm = 'javascript:(function(){' + body + '})();void 0';
+  $('bm').value = bm;
+  $('bmCopy').addEventListener('click', function(){ copy(bm, $('bmToast'), $('bm')); });
+
+})();
+</script>
