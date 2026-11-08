@@ -183,6 +183,92 @@ local function buildTreadmill(cfg, index: number, position: Vector3)
 	}
 end
 
+-- たまごをかえす檻（中のたまごは、それぞれのプレイヤーの画面にだけ自分の分が表示される）
+local function buildIncubator(): ProximityPrompt
+	local origin = Vector3.new(-38, 0, -50)
+	local model = Instance.new("Model")
+	model.Name = "Incubator"
+	model.Parent = world
+
+	part({
+		Name = "CageFloor",
+		Size = Vector3.new(12, 1, 26),
+		Position = origin + Vector3.new(0, 0.5, 0),
+		Color = Color3.fromRGB(230, 205, 140),
+		Material = Enum.Material.Fabric,
+		Parent = model,
+	})
+	-- 格子
+	local barColor = Color3.fromRGB(90, 90, 100)
+	for z = -12, 12, 2 do
+		for _, x in { -5.5, 5.5 } do
+			cylinder(
+				origin + Vector3.new(x, 5, z),
+				0.4,
+				8,
+				{ Name = "Bar", Color = barColor, Material = Enum.Material.Metal, Parent = model }
+			)
+		end
+	end
+	for x = -3.5, 3.5, 2 do
+		for _, z in { -12.5, 12.5 } do
+			cylinder(
+				origin + Vector3.new(x, 5, z),
+				0.4,
+				8,
+				{ Name = "Bar", Color = barColor, Material = Enum.Material.Metal, Parent = model }
+			)
+		end
+	end
+	local roof = part({
+		Name = "CageRoof",
+		Size = Vector3.new(13, 1, 27),
+		Position = origin + Vector3.new(0, 9.5, 0),
+		Color = Color3.fromRGB(150, 90, 50),
+		Material = Enum.Material.WoodPlanks,
+		Parent = model,
+	})
+	label(roof, "🥚 ふ化の檻", 3.5, 16, 3, Color3.fromRGB(255, 240, 160))
+
+	-- たまごを置く場所（見えない目印）
+	for i = 1, 5 do
+		part({
+			Name = "Slot" .. i,
+			Size = Vector3.new(1, 1, 1),
+			Position = origin + Vector3.new(0, 3.5, (i - 3) * 4.5),
+			Transparency = 1,
+			CanCollide = false,
+			CanQuery = false,
+			CanTouch = false,
+			Parent = model,
+		})
+		local cushion = cylinder(origin + Vector3.new(0, 1.15, (i - 3) * 4.5), 3.6, 0.3, {
+			Name = "Cushion",
+			Color = Color3.fromRGB(255, 180, 190),
+			Material = Enum.Material.Fabric,
+			Parent = model,
+		})
+		cushion.CanCollide = false
+	end
+
+	-- 前（ベースの中心側）の看板
+	local sign = part({
+		Name = "CageSign",
+		Size = Vector3.new(1, 4, 6),
+		Position = origin + Vector3.new(8, 2, 0),
+		Color = Color3.fromRGB(255, 245, 225),
+		Parent = model,
+	})
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "檻を見る"
+	prompt.ObjectText = "ふ化の檻"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = sign
+	return prompt
+end
+
 local function buildShop(): ProximityPrompt
 	local origin = Vector3.new(-52, 0, 5)
 	local wallColor = Color3.fromRGB(255, 245, 225)
@@ -467,6 +553,7 @@ function WorldBuilder.build()
 	end
 
 	local shopPrompt = buildShop()
+	local incubatorPrompt = buildIncubator()
 
 	local rng = Random.new(20261108)
 	local eggs = {}
@@ -499,6 +586,7 @@ function WorldBuilder.build()
 		eggs = eggs,
 		enemyHomes = enemyHomes,
 		shopPrompt = shopPrompt,
+		incubatorPrompt = incubatorPrompt,
 	}
 end
 

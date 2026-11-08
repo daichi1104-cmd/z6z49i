@@ -2,6 +2,7 @@
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -27,6 +28,7 @@ local openShop = remote("RemoteEvent", "OpenShop") :: RemoteEvent
 local goHome = remote("RemoteEvent", "GoHome") :: RemoteEvent
 local buyItem = remote("RemoteFunction", "BuyItem") :: RemoteFunction
 local knockback = remote("RemoteEvent", "Knockback") :: RemoteEvent
+local hatchEgg = remote("RemoteFunction", "HatchEgg") :: RemoteFunction
 local dragonAction = remote("RemoteFunction", "DragonAction") :: RemoteFunction
 
 -- DataStore は Studio で API アクセスが無効だと失敗するので pcall で守る
@@ -40,7 +42,8 @@ type Data = {
 	coins: number,
 	eggs: number,
 	items: { [string]: boolean },
-	dragons: { [string]: boolean },
+	collection: { [string]: number }, -- たまごから生まれたドラゴン（id → 何体持っているか）
+	incubator: { { zone: number, readyAt: number } }, -- 檻の中のたまご（readyAt = かえる時刻）
 	dragon: string?,
 }
 
@@ -50,7 +53,17 @@ local pendingGain: { [Player]: number } = {}
 local lastWarn: { [Player]: number } = {}
 
 local function defaultData(): Data
-	return { speed = 0, coins = 0, eggs = 0, items = {}, dragons = { Chibi = true }, dragon = "Chibi" }
+	return { speed = 0, coins = 0, eggs = 0, items = {}, collection = {}, incubator = {}, dragon = "Chibi" }
+end
+
+-- はじめの仲間はだれでも、生まれたドラゴンは持っていれば連れて行ける
+local function canUseDragon(d: Data, id: string): boolean
+	for _, starter in Config.Dragons do
+		if starter.id == id then
+			return true
+		end
+	end
+	return (d.collection[id] or 0) > 0
 end
 
 local function loadData(player: Player): Data
@@ -70,12 +83,23 @@ local function loadData(player: Player): Data
 				d.items[tostring(id)] = owned == true
 			end
 		end
-		if typeof(value.dragons) == "table" then
-			for id, owned in value.dragons do
-				d.dragons[tostring(id)] = owned == true
+		if typeof(value.collection) == "table" then
+			for id, count in value.collection do
+				if Config.findDragon(tostring(id)) and tonumber(count) then
+					d.collection[tostring(id)] = math.max(0, math.floor(tonumber(count) :: number))
+				end
 			end
 		end
-		if typeof(value.dragon) == "string" and Dragons.find(value.dragon) then
+		if typeof(value.incubator) == "table" then
+			for _, egg in value.incubator do
+				local zone = typeof(egg) == "table" and tonumber(egg.zone)
+				local readyAt = typeof(egg) == "table" and tonumber(egg.readyAt)
+				if zone and readyAt and Config.Zones[zone] and #d.incubator < 5 then
+					table.insert(d.incubator, { zone = zone, readyAt = readyAt })
+				end
+			end
+		end
+		if typeof(value.dragon) == "string" and canUseDragon(d, value.dragon) then
 			d.dragon = value.dragon
 		elseif value.dragon == false then
 			d.dragon = nil
@@ -95,7 +119,8 @@ local function saveData(player: Player)
 			coins = d.coins,
 			eggs = d.eggs,
 			items = d.items,
-			dragons = d.dragons,
+			collection = d.collection,
+			incubator = d.incubator,
 			dragon = d.dragon or false,
 		})
 	end)
@@ -149,6 +174,16 @@ local function maxHealth(d: Data): number
 	return h
 end
 
+local function incubatorSlots(d: Data): number
+	local n = Config.IncubatorSlots
+	for _, item in Config.Items do
+		if d.items[item.id] and item.incubatorSlots then
+			n = math.max(n, item.incubatorSlots)
+		end
+	end
+	return n
+end
+
 local function jumpPower(d: Data): number
 	local j = 50
 	for _, item in Config.Items do
@@ -177,6 +212,10 @@ local function syncStats(player: Player)
 	player:SetAttribute("WalkSpeed", walkSpeed(d))
 	player:SetAttribute("TrainMult", trainMult(d))
 	player:SetAttribute("Dragon", d.dragon or "")
+	-- 檻と図鑑の中身は、文字にしてクライアントへ渡す
+	player:SetAttribute("Incubator", HttpService:JSONEncode(d.incubator))
+	player:SetAttribute("Collection", HttpService:JSONEncode(d.collection))
+	player:SetAttribute("IncubatorSlots", incubatorSlots(d))
 end
 
 local function applyStats(player: Player, fullHeal: boolean?)
@@ -263,8 +302,17 @@ local function deliverEgg(player: Player)
 	d.coins += reward
 	d.eggs += 1
 	dropEgg(player)
+	-- 檻にあきがあれば入れる
+	if #d.incubator < incubatorSlots(d) then
+		local seconds = Config.HatchTime[zoneIndex]
+		table.insert(d.incubator, { zone = zoneIndex, readyAt = os.time() + seconds })
+		notify:FireClient(player, string.format("🎉 たまごを届けた！ +%d コイン", reward), true)
+		notify:FireClient(player, string.format("🥚 たまごを檻に入れた（%d秒でかえるよ）", seconds))
+	else
+		notify:FireClient(player, string.format("🎉 たまごを届けた！ +%d コイン", reward), true)
+		notify:FireClient(player, "⚠️ 檻がいっぱい！ たまごをかえしてから運ぼう")
+	end
 	syncStats(player)
-	notify:FireClient(player, string.format("🎉 たまごを届けた！ +%d コイン", reward), true)
 	task.spawn(saveData, player)
 end
 
@@ -277,7 +325,7 @@ Players.PlayerAdded:Connect(function(player)
 		v.Parent = stats
 	end
 	stats.Parent = player
-	for _, name in { "OwnedItems", "OwnedDragons" } do
+	for _, name in { "OwnedItems" } do
 		local f = Instance.new("Folder")
 		f.Name = name
 		f.Parent = player
@@ -288,11 +336,6 @@ Players.PlayerAdded:Connect(function(player)
 	for id, owned in d.items do
 		if owned then
 			markOwned(player, "OwnedItems", id)
-		end
-	end
-	for id, owned in d.dragons do
-		if owned then
-			markOwned(player, "OwnedDragons", id)
 		end
 	end
 	syncStats(player)
@@ -458,7 +501,7 @@ buyItem.OnServerInvoke = function(player: Player, id: any)
 	return true, item.name .. " を手に入れた！"
 end
 
--- ドラゴン：action = "equip"（id のドラゴンを連れていく）/ "unequip"（お休み）。全員無料
+-- ドラゴン：action = "equip"（id のドラゴンを連れていく）/ "unequip"（お休み）
 dragonAction.OnServerInvoke = function(player: Player, action: any, id: any)
 	local d = data[player]
 	if not d or typeof(action) ~= "string" then
@@ -476,6 +519,9 @@ dragonAction.OnServerInvoke = function(player: Player, action: any, id: any)
 	if not dragon then
 		return false, "そのドラゴンはいません"
 	end
+	if not canUseDragon(d, dragon.id) then
+		return false, "そのドラゴンは まだ持っていません"
+	end
 	d.dragon = dragon.id
 	Dragons.equip(player, dragon.id)
 	syncStats(player)
@@ -483,6 +529,54 @@ dragonAction.OnServerInvoke = function(player: Player, action: any, id: any)
 	task.spawn(saveData, player)
 	return true, dragon.name .. " が仲間になった！"
 end
+
+-- たまごをかえす：slot 番目のたまごの時間が来ていたら、ドラゴンが生まれる
+local function rollRarity(zoneIndex: number): number
+	local odds = Config.HatchOdds[zoneIndex]
+	local total = 0
+	for r, w in odds do
+		if #Config.HatchByRarity[r] > 0 then
+			total += w
+		end
+	end
+	local pick = math.random() * total
+	for r, w in odds do
+		if #Config.HatchByRarity[r] > 0 then
+			pick -= w
+			if pick <= 0 then
+				return r
+			end
+		end
+	end
+	return 1
+end
+
+hatchEgg.OnServerInvoke = function(player: Player, slot: any)
+	local d = data[player]
+	if not d or typeof(slot) ~= "number" then
+		return false
+	end
+	local egg = d.incubator[slot]
+	if not egg then
+		return false
+	end
+	if egg.readyAt > os.time() then
+		return false
+	end
+	table.remove(d.incubator, slot)
+	local rarity = rollRarity(egg.zone)
+	local list = Config.HatchByRarity[rarity]
+	local dragon = list[math.random(1, #list)]
+	local isNew = (d.collection[dragon.id] or 0) == 0
+	d.collection[dragon.id] = (d.collection[dragon.id] or 0) + 1
+	syncStats(player)
+	task.spawn(saveData, player)
+	return true, dragon.id, isNew
+end
+
+world.incubatorPrompt.Triggered:Connect(function(player)
+	openShop:FireClient(player, "cage")
+end)
 
 -- ベースへ戻る（たまごを持っているときは使えない）
 goHome.OnServerEvent:Connect(function(player)

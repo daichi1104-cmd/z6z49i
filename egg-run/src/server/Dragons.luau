@@ -21,13 +21,9 @@ type Follower = {
 }
 local followers: { [Player]: Follower } = {}
 
+-- はじめの仲間と、たまごから生まれるドラゴンの両方からさがす
 function Dragons.find(id: string?)
-	for _, d in Config.Dragons do
-		if d.id == id then
-			return d
-		end
-	end
-	return nil
+	return Config.findDragon(id)
 end
 
 -- 模型づくり（-Z 方向が前、原点が体の中心）
@@ -265,10 +261,15 @@ end
 
 local SCALE = { small = 1, winged = 1, magma = 1, triple = 1, giant = 1.4, phoenix = 1.1 }
 
+-- レアなドラゴンほど少し大きい
+local function scaleOf(dragon): number
+	return (SCALE[dragon.shape] or 1) * (1 + 0.08 * ((dragon.rarity or 1) - 1))
+end
+
 local function build(dragon): Model
 	local model = Instance.new("Model")
 	model.Name = dragon.name
-	local scale = SCALE[dragon.shape] or 1
+	local scale = scaleOf(dragon)
 	local add = makeBuilder(model, scale)
 	local builder = BUILDERS[dragon.shape] or BUILDERS.small
 	builder(add, dragon.color)
@@ -282,17 +283,24 @@ local function build(dragon): Model
 	text.BackgroundTransparency = 1
 	text.Font = Enum.Font.GothamBold
 	text.TextScaled = true
-	text.TextColor3 = Color3.new(1, 1, 1)
+	local rarity = dragon.rarity and Config.Rarities[dragon.rarity]
+	text.TextColor3 = if rarity then rarity.color else Color3.new(1, 1, 1)
 	text.TextStrokeTransparency = 0.3
 	text.Text = dragon.name
 	text.Parent = nameTag
 	local first = model:FindFirstChildWhichIsA("BasePart")
 	model.PrimaryPart = first
+	-- ウルトラレア以上はキラキラ光る
+	if (dragon.rarity or 0) >= 4 and first then
+		local sparkles = Instance.new("Sparkles")
+		sparkles.SparkleColor = dragon.color
+		sparkles.Parent = first
+	end
 	if dragon.shape == "phoenix" and first then
 		local fire = Instance.new("Fire")
 		fire.Size = 3
 		fire.Heat = 2
-		fire.Color = Color3.fromRGB(255, 140, 30)
+		fire.Color = if dragon.rarity then dragon.color else Color3.fromRGB(255, 140, 30)
 		fire.SecondaryColor = Color3.fromRGB(255, 50, 20)
 		fire.Parent = first
 		local glow = Instance.new("PointLight")
@@ -323,7 +331,7 @@ function Dragons.equip(player: Player, id: string?)
 	followers[player] = {
 		model = model,
 		cf = start,
-		scale = SCALE[dragon.shape] or 1,
+		scale = scaleOf(dragon),
 		dragon = dragon,
 		lastAttack = 0,
 		target = nil,

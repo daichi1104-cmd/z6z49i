@@ -1,5 +1,6 @@
--- 画面表示：ステータス、たまごの案内、ボタン、ショップ（アイテム・ドラゴン）、お知らせ
+-- 画面表示：ステータス、たまごの案内、ボタン、ショップ（アイテム・ドラゴン・檻）、ふ化の演出、お知らせ
 
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -14,6 +15,7 @@ local goHome = remotes:WaitForChild("GoHome") :: RemoteEvent
 local buyItem = remotes:WaitForChild("BuyItem") :: RemoteFunction
 local knockback = remotes:WaitForChild("Knockback") :: RemoteEvent
 local dragonAction = remotes:WaitForChild("DragonAction") :: RemoteFunction
+local hatchEgg = remotes:WaitForChild("HatchEgg") :: RemoteFunction
 
 local player = Players.LocalPlayer
 local stats = player:WaitForChild("leaderstats")
@@ -23,6 +25,28 @@ local eggValue = stats:WaitForChild("たまご") :: IntValue
 local ownedItems = player:WaitForChild("OwnedItems")
 
 local NEST = Vector3.new(0, 0, -50)
+
+-- 檻と図鑑の中身（サーバーが文字にして渡してくる）
+local function decode(attr: string): any
+	local raw = player:GetAttribute(attr)
+	if typeof(raw) ~= "string" then
+		return {}
+	end
+	local ok, value = pcall(HttpService.JSONDecode, HttpService, raw)
+	return if ok and typeof(value) == "table" then value else {}
+end
+local function incubator(): { { zone: number, readyAt: number } }
+	return decode("Incubator")
+end
+local function collection(): { [string]: number }
+	return decode("Collection")
+end
+local function secondsLeft(egg): number
+	return math.max(0, math.ceil(egg.readyAt - workspace:GetServerTimeNow()))
+end
+local function clock(seconds: number): string
+	return string.format("%d:%02d", seconds // 60, seconds % 60)
+end
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "HUD"
@@ -212,8 +236,8 @@ corner(closeButton, 8)
 local tabs = {}
 local function makeTab(label: string, x: number)
 	local b = Instance.new("TextButton")
-	b.Position = UDim2.new(x, 8, 0, 46)
-	b.Size = UDim2.new(0.5, -12, 0, 34)
+	b.Position = UDim2.new(x, 6, 0, 46)
+	b.Size = UDim2.new(1 / 3, -10, 0, 34)
 	b.Font = Enum.Font.GothamBold
 	b.TextScaled = true
 	b.TextColor3 = Color3.new(1, 1, 1)
@@ -224,7 +248,8 @@ local function makeTab(label: string, x: number)
 	return b
 end
 tabs.items = makeTab("👟 アイテム", 0)
-tabs.dragons = makeTab("🐉 ドラゴン", 0.5)
+tabs.dragons = makeTab("🐉 ドラゴン", 1 / 3)
+tabs.cage = makeTab("🥚 檻", 2 / 3)
 
 local list = Instance.new("ScrollingFrame")
 list.Position = UDim2.new(0, 8, 0, 88)
@@ -252,8 +277,9 @@ local function row(
 	buttonText: string,
 	buttonColor: Color3,
 	enabled: boolean,
-	onClick: () -> ()
-)
+	onClick: () -> (),
+	nameColor: Color3?
+): (TextLabel, TextButton)
 	local f = Instance.new("Frame")
 	f.LayoutOrder = order
 	f.Size = UDim2.new(1, -8, 0, 62)
@@ -266,9 +292,10 @@ local function row(
 		Size = UDim2.new(1, -130, 0, 26),
 		Text = name,
 		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = nameColor or Color3.new(1, 1, 1),
 		ZIndex = 7,
 	})
-	text(f, {
+	local descLabel = text(f, {
 		Position = UDim2.new(0, 10, 0, 34),
 		Size = UDim2.new(1, -130, 0, 20),
 		Text = desc,
@@ -301,11 +328,16 @@ local function row(
 			render()
 		end)
 	end
+	return descLabel, b
 end
 
 local GREEN = Color3.fromRGB(50, 170, 80)
 local GRAY = Color3.fromRGB(90, 90, 105)
 local BLUE = Color3.fromRGB(60, 120, 220)
+
+-- 檻のタブの、残り時間を毎秒書きかえるための表
+local cageRows: { { desc: TextLabel, button: TextButton, slot: number } } = {}
+local showHatch: (string, boolean) -> ()
 
 -- ドラゴンの説明に、こうげき力をつけ足す
 local function dragonDesc(dragon): string
@@ -325,6 +357,8 @@ render = function()
 	end
 	tabs.items.BackgroundColor3 = if currentTab == "items" then BLUE else GRAY
 	tabs.dragons.BackgroundColor3 = if currentTab == "dragons" then BLUE else GRAY
+	tabs.cage.BackgroundColor3 = if currentTab == "cage" then BLUE else GRAY
+	table.clear(cageRows)
 	shopTitle.Text = string.format("🛒 ショップ　🪙 %d", coinValue.Value)
 
 	if currentTab == "items" then
@@ -345,27 +379,102 @@ render = function()
 				end
 			)
 		end
-	else
+	elseif currentTab == "dragons" then
 		local equipped = player:GetAttribute("Dragon")
-		for i, dragon in Config.Dragons do
+		local owned = collection()
+		local function dragonRow(order: number, dragon, count: number?)
+			local rarity = dragon.rarity and Config.Rarities[dragon.rarity]
+			local name = "🐉 " .. dragon.name
+			if rarity then
+				name = string.format("%s %s", string.rep("★", dragon.rarity), dragon.name)
+			end
+			if count and count > 1 then
+				name ..= string.format(" ×%d", count)
+			end
+			local color = if rarity then rarity.color else nil
 			if dragon.id == equipped then
-				row(
-					i,
-					"🐉 " .. dragon.name,
-					dragonDesc(dragon),
-					"お休み",
-					Color3.fromRGB(200, 120, 40),
-					true,
-					function()
-						local ok, msg = dragonAction:InvokeServer("unequip")
-						toast(msg, ok)
-					end
-				)
+				row(order, name, dragonDesc(dragon), "お休み", Color3.fromRGB(200, 120, 40), true, function()
+					local ok, msg = dragonAction:InvokeServer("unequip")
+					toast(msg, ok)
+				end, color)
 			else
-				row(i, "🐉 " .. dragon.name, dragonDesc(dragon), "つれていく", BLUE, true, function()
+				row(order, name, dragonDesc(dragon), "つれていく", BLUE, true, function()
 					local ok, msg = dragonAction:InvokeServer("equip", dragon.id)
 					toast(msg, ok)
-				end)
+				end, color)
+			end
+		end
+
+		-- 生まれたドラゴン（レアな順）を先に、そのあと はじめの仲間
+		local hatched = {}
+		for _, dragon in Config.HatchDragons do
+			if (owned[dragon.id] or 0) > 0 then
+				table.insert(hatched, dragon)
+			end
+		end
+		table.sort(hatched, function(x, y)
+			if x.rarity ~= y.rarity then
+				return x.rarity > y.rarity
+			end
+			return x.id < y.id
+		end)
+		shopTitle.Text = string.format("📖 図鑑 %d / %d", #hatched, #Config.HatchDragons)
+		for i, dragon in hatched do
+			dragonRow(i, dragon, owned[dragon.id])
+		end
+		for i, dragon in Config.Dragons do
+			dragonRow(1000 + i, dragon)
+		end
+	else
+		-- 檻
+		local eggs = incubator()
+		local slots = player:GetAttribute("IncubatorSlots") or Config.IncubatorSlots
+		shopTitle.Text = string.format("🥚 ふ化の檻 %d / %d", #eggs, slots)
+		for slot = 1, slots do
+			local egg = eggs[slot]
+			if egg then
+				local zone = Config.Zones[egg.zone]
+				local desc, button = row(slot, zone.name .. "のたまご", "", "", GRAY, true, function()
+					if secondsLeft(egg) > 0 then
+						toast(string.format("あと %s でかえるよ", clock(secondsLeft(egg))))
+						return
+					end
+					local ok, id, isNew = hatchEgg:InvokeServer(slot)
+					if ok then
+						showHatch(id, isNew)
+					end
+				end, zone.eggColor)
+				table.insert(cageRows, { desc = desc, button = button, slot = slot })
+			else
+				row(
+					slot,
+					"あき",
+					"巣にたまごを届けると ここに入る",
+					"ー",
+					GRAY,
+					false,
+					function() end
+				)
+			end
+		end
+	end
+end
+
+-- 檻のタブを開いている間、残り時間を書きかえる
+local function updateCageRows()
+	local eggs = incubator()
+	for _, r in cageRows do
+		local egg = eggs[r.slot]
+		if egg then
+			local left = secondsLeft(egg)
+			if left > 0 then
+				r.desc.Text = string.format("あと %s でかえる", clock(left))
+				r.button.Text = "⏳ " .. clock(left)
+				r.button.BackgroundColor3 = GRAY
+			else
+				r.desc.Text = "かえる準備ができた！"
+				r.button.Text = "🐣 かえす！"
+				r.button.BackgroundColor3 = GREEN
 			end
 		end
 	end
@@ -377,9 +486,10 @@ local function openShop(tab: string?)
 	end
 	shop.Visible = true
 	render()
+	updateCageRows()
 end
-openShopEvent.OnClientEvent:Connect(function()
-	openShop()
+openShopEvent.OnClientEvent:Connect(function(tab: string?)
+	openShop(tab)
 end)
 closeButton.Activated:Connect(function()
 	shop.Visible = false
@@ -392,6 +502,19 @@ tabs.dragons.Activated:Connect(function()
 	currentTab = "dragons"
 	render()
 end)
+tabs.cage.Activated:Connect(function()
+	currentTab = "cage"
+	render()
+	updateCageRows()
+end)
+for _, attr in { "Incubator", "Collection", "IncubatorSlots" } do
+	player:GetAttributeChangedSignal(attr):Connect(function()
+		if shop.Visible and not busy then
+			render()
+			updateCageRows()
+		end
+	end)
+end
 coinValue.Changed:Connect(function()
 	if shop.Visible then
 		render()
@@ -404,7 +527,7 @@ player:GetAttributeChangedSignal("Dragon"):Connect(function()
 end)
 
 -- 左のボタン（スマホのジャンプボタンと重ならない位置）
-local function sideButton(label: string, y: number, color: Color3, onClick: () -> ())
+local function sideButton(label: string, y: number, color: Color3, onClick: () -> ()): TextButton
 	local b = Instance.new("TextButton")
 	b.AnchorPoint = Vector2.new(0, 0.5)
 	b.Position = UDim2.new(0, 10, 0.4, y)
@@ -423,20 +546,172 @@ local function sideButton(label: string, y: number, color: Color3, onClick: () -
 	pad.PaddingBottom = UDim.new(0, 6)
 	pad.Parent = b
 	b.Activated:Connect(onClick)
+	return b
 end
 
-sideButton("🛒 ショップ", -50, GREEN, function()
+sideButton("🛒 ショップ", -75, GREEN, function()
 	if shop.Visible then
 		shop.Visible = false
 	else
 		openShop("items")
 	end
 end)
-sideButton("🐉 ドラゴン", 0, Color3.fromRGB(140, 70, 200), function()
+sideButton("🐉 ドラゴン", -25, Color3.fromRGB(140, 70, 200), function()
 	openShop("dragons")
 end)
-sideButton("🏠 ベースへ", 50, BLUE, function()
+local cageButton = sideButton("🥚 檻", 25, Color3.fromRGB(220, 140, 40), function()
+	openShop("cage")
+end)
+sideButton("🏠 ベースへ", 75, BLUE, function()
 	goHome:FireServer()
+end)
+
+-- ふ化の演出
+local hatchPopup = Instance.new("Frame")
+hatchPopup.AnchorPoint = Vector2.new(0.5, 0.5)
+hatchPopup.Position = UDim2.fromScale(0.5, 0.5)
+hatchPopup.Size = UDim2.new(0, 320, 0, 250)
+hatchPopup.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+hatchPopup.Visible = false
+hatchPopup.ZIndex = 20
+hatchPopup.Parent = gui
+corner(hatchPopup, 16)
+local hatchStroke = Instance.new("UIStroke")
+hatchStroke.Thickness = 4
+hatchStroke.Parent = hatchPopup
+local hatchTitle =
+	text(hatchPopup, { Position = UDim2.new(0, 12, 0, 12), Size = UDim2.new(1, -24, 0, 36), ZIndex = 21 })
+local hatchRarity =
+	text(hatchPopup, { Position = UDim2.new(0, 12, 0, 54), Size = UDim2.new(1, -24, 0, 30), ZIndex = 21 })
+local hatchName = text(hatchPopup, { Position = UDim2.new(0, 12, 0, 88), Size = UDim2.new(1, -24, 0, 44), ZIndex = 21 })
+local hatchDesc = text(hatchPopup, {
+	Position = UDim2.new(0, 12, 0, 136),
+	Size = UDim2.new(1, -24, 0, 24),
+	Font = Enum.Font.Gotham,
+	TextColor3 = Color3.fromRGB(210, 210, 230),
+	ZIndex = 21,
+})
+local function popupButton(label: string, x: number, color: Color3): TextButton
+	local b = Instance.new("TextButton")
+	b.Position = UDim2.new(x, 8, 1, -60)
+	b.Size = UDim2.new(0.5, -16, 0, 46)
+	b.BackgroundColor3 = color
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = label
+	b.ZIndex = 21
+	b.Parent = hatchPopup
+	corner(b, 10)
+	return b
+end
+local equipNew = popupButton("つれていく", 0, BLUE)
+local closePopup = popupButton("とじる", 0.5, GRAY)
+local hatchedId: string? = nil
+
+showHatch = function(id: string, isNew: boolean)
+	local dragon = Config.findDragon(id)
+	if not dragon then
+		return
+	end
+	local rarity = Config.Rarities[dragon.rarity]
+	hatchedId = id
+	hatchStroke.Color = rarity.color
+	hatchTitle.Text = if isNew
+		then "🐣 新しいドラゴンが生まれた！"
+		else "🐣 ドラゴンが生まれた！"
+	hatchRarity.Text = string.rep("★", dragon.rarity) .. " " .. rarity.name
+	hatchRarity.TextColor3 = rarity.color
+	hatchName.Text = dragon.name
+	hatchName.TextColor3 = dragon.color
+	hatchDesc.Text = dragonDesc(dragon)
+	-- ぽんっと大きくなって出てくる
+	hatchPopup.Size = UDim2.new(0, 60, 0, 50)
+	hatchPopup.Visible = true
+	TweenService:Create(hatchPopup, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Size = UDim2.new(0, 320, 0, 250) })
+		:Play()
+end
+equipNew.Activated:Connect(function()
+	hatchPopup.Visible = false
+	if hatchedId then
+		local ok, msg = dragonAction:InvokeServer("equip", hatchedId)
+		toast(msg, ok)
+	end
+end)
+closePopup.Activated:Connect(function()
+	hatchPopup.Visible = false
+end)
+
+-- 檻の中に、自分のたまごを表示する（自分の画面にだけ見える）
+local cageModel = workspace:WaitForChild("World"):WaitForChild("Incubator", 30)
+local eggParts: { Part } = {}
+local function refreshCageEggs()
+	for _, p in eggParts do
+		p:Destroy()
+	end
+	table.clear(eggParts)
+	if not cageModel then
+		return
+	end
+	for i, egg in incubator() do
+		local slot = cageModel:FindFirstChild("Slot" .. i) :: BasePart?
+		if slot then
+			local p = Instance.new("Part")
+			p.Shape = Enum.PartType.Ball
+			p.Size = Vector3.one * 2.6
+			p.Anchored = true
+			p.CanCollide = false
+			p.CanQuery = false
+			p.CanTouch = false
+			p.Color = Config.Zones[egg.zone].eggColor
+			p.CFrame = slot.CFrame
+			local mesh = Instance.new("SpecialMesh")
+			mesh.MeshType = Enum.MeshType.Sphere
+			mesh.Scale = Vector3.new(1, 1.3, 1)
+			mesh.Parent = p
+			p:SetAttribute("ReadyAt", egg.readyAt)
+			p:SetAttribute("BaseY", slot.Position.Y)
+			p.Parent = cageModel
+			table.insert(eggParts, p)
+		end
+	end
+end
+player:GetAttributeChangedSignal("Incubator"):Connect(refreshCageEggs)
+refreshCageEggs()
+
+-- 毎秒：残り時間の表示、かえせるたまごの数、かえせるたまごをゆらす
+local lastReady = 0
+task.spawn(function()
+	while true do
+		local ready = 0
+		for _, egg in incubator() do
+			if secondsLeft(egg) == 0 then
+				ready += 1
+			end
+		end
+		cageButton.Text = if ready > 0 then string.format("🐣 檻 (%d)", ready) else "🥚 檻"
+		if ready > lastReady then
+			toast("🐣 檻のたまごが かえせるよ！", true)
+		end
+		lastReady = ready
+		if shop.Visible and currentTab == "cage" then
+			updateCageRows()
+		end
+		task.wait(1)
+	end
+end)
+RunService.RenderStepped:Connect(function()
+	local t = os.clock()
+	for _, p in eggParts do
+		local readyAt = p:GetAttribute("ReadyAt") :: number
+		local baseY = p:GetAttribute("BaseY") :: number
+		local pos = p.Position
+		if readyAt and workspace:GetServerTimeNow() >= readyAt then
+			p.CFrame = CFrame.new(pos.X, baseY, pos.Z) * CFrame.Angles(0, 0, math.sin(t * 12) * 0.25)
+		else
+			p.CFrame = CFrame.new(pos.X, baseY, pos.Z)
+		end
+	end
 end)
 
 task.delay(2, function()
