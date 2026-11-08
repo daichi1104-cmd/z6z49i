@@ -571,7 +571,11 @@ hatchEgg.OnServerInvoke = function(player: Player, slot: any)
 	local dragon = list[math.random(1, #list)]
 	local isNew = (d.collection[dragon.id] or 0) == 0
 	d.collection[dragon.id] = (d.collection[dragon.id] or 0) + 1
+	-- 生まれたドラゴンは、そのまま仲間になってついて来る
+	d.dragon = dragon.id
+	Dragons.equip(player, dragon.id)
 	syncStats(player)
+	applyStats(player)
 	task.spawn(saveData, player)
 	return true, dragon.id, isNew
 end

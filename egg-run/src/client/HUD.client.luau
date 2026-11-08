@@ -73,31 +73,95 @@ local function text(parent: Instance, props: { [string]: any }): TextLabel
 	return t
 end
 
--- 上のステータス
+-- 右上のステータス（じゃまにならないよう小さめ）
+local StarterGui = game:GetService("StarterGui")
+-- Roblox の体力表示と、右上の参加者リストは、このステータスと重なるので消す
+pcall(function()
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+end)
+
 local panel = Instance.new("Frame")
-panel.AnchorPoint = Vector2.new(0.5, 0)
-panel.Position = UDim2.new(0.5, 0, 0, 6)
-panel.Size = UDim2.new(0, 300, 0, 60)
+panel.AnchorPoint = Vector2.new(1, 0)
+panel.Position = UDim2.new(1, -8, 0, 6)
+panel.Size = UDim2.new(0, 210, 0, 74)
 panel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-panel.BackgroundTransparency = 0.25
+panel.BackgroundTransparency = 0.35
 panel.Parent = gui
-corner(panel, 12)
+corner(panel, 10)
 
 local speedLabel = text(panel, {
-	Position = UDim2.new(0, 10, 0, 4),
-	Size = UDim2.new(1, -20, 0, 28),
+	Position = UDim2.new(0, 8, 0, 4),
+	Size = UDim2.new(1, -16, 0, 20),
+	TextXAlignment = Enum.TextXAlignment.Right,
 	TextColor3 = Color3.fromRGB(120, 230, 255),
 })
 local moneyLabel = text(panel, {
-	Position = UDim2.new(0, 10, 0, 33),
-	Size = UDim2.new(1, -20, 0, 22),
+	Position = UDim2.new(0, 8, 0, 25),
+	Size = UDim2.new(1, -16, 0, 18),
+	TextXAlignment = Enum.TextXAlignment.Right,
 	TextColor3 = Color3.fromRGB(255, 225, 110),
 })
 
+-- 自分の体力ゲージ
+local hpBack = Instance.new("Frame")
+hpBack.Position = UDim2.new(0, 8, 0, 48)
+hpBack.Size = UDim2.new(1, -16, 0, 20)
+hpBack.BackgroundColor3 = Color3.fromRGB(60, 20, 25)
+hpBack.Parent = panel
+corner(hpBack, 6)
+local hpBar = Instance.new("Frame")
+hpBar.Size = UDim2.fromScale(1, 1)
+hpBar.BackgroundColor3 = Color3.fromRGB(80, 220, 90)
+hpBar.Parent = hpBack
+corner(hpBar, 6)
+local hpText = text(hpBack, {
+	Size = UDim2.fromScale(1, 1),
+	ZIndex = 2,
+	TextStrokeTransparency = 0.3,
+})
+
+local lastHealth = nil
+local function refreshHealth(humanoid: Humanoid)
+	local hp = math.max(0, humanoid.Health)
+	local ratio = if humanoid.MaxHealth > 0 then hp / humanoid.MaxHealth else 0
+	hpText.Text = string.format("❤️ %d / %d", math.ceil(hp), humanoid.MaxHealth)
+	TweenService:Create(hpBar, TweenInfo.new(0.2), { Size = UDim2.fromScale(ratio, 1) }):Play()
+	-- 多いと緑、へると黄色、少ないと赤
+	hpBar.BackgroundColor3 = if ratio > 0.5
+		then Color3.fromRGB(80, 220, 90)
+		elseif ratio > 0.25 then Color3.fromRGB(255, 200, 50)
+		else Color3.fromRGB(255, 60, 60)
+	-- ダメージを受けたら、ゲージのまわりが一瞬赤く光る
+	if lastHealth and hp < lastHealth then
+		hpBack.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+		TweenService:Create(hpBack, TweenInfo.new(0.4), { BackgroundColor3 = Color3.fromRGB(60, 20, 25) }):Play()
+	end
+	lastHealth = hp
+end
+local function watchCharacter(character: Model)
+	local humanoid = character:WaitForChild("Humanoid", 10) :: Humanoid?
+	if not humanoid then
+		return
+	end
+	lastHealth = nil
+	refreshHealth(humanoid)
+	humanoid.HealthChanged:Connect(function()
+		refreshHealth(humanoid)
+	end)
+	humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(function()
+		refreshHealth(humanoid)
+	end)
+end
+player.CharacterAdded:Connect(watchCharacter)
+if player.Character then
+	task.spawn(watchCharacter, player.Character)
+end
+
 local function refreshStats()
 	local ws = player:GetAttribute("WalkSpeed") or 16
-	speedLabel.Text = string.format("⚡ スピード %d（はやさ %d）", speedValue.Value, ws)
-	moneyLabel.Text = string.format("🪙 %d コイン　🥚 %d こ", coinValue.Value, eggValue.Value)
+	speedLabel.Text = string.format("⚡ %d（はやさ %d）", speedValue.Value, ws)
+	moneyLabel.Text = string.format("🪙 %d　🥚 %d", coinValue.Value, eggValue.Value)
 end
 speedValue.Changed:Connect(refreshStats)
 coinValue.Changed:Connect(refreshStats)
@@ -108,7 +172,7 @@ refreshStats()
 -- たまごを運んでいる間の案内
 local carryBanner = Instance.new("Frame")
 carryBanner.AnchorPoint = Vector2.new(0.5, 0)
-carryBanner.Position = UDim2.new(0.5, 0, 0, 72)
+carryBanner.Position = UDim2.new(0.5, 0, 0, 6)
 carryBanner.Size = UDim2.new(0, 280, 0, 36)
 carryBanner.BackgroundColor3 = Color3.fromRGB(255, 170, 40)
 carryBanner.Visible = false
@@ -135,7 +199,7 @@ end)
 -- お知らせ
 local toastHolder = Instance.new("Frame")
 toastHolder.AnchorPoint = Vector2.new(0.5, 0)
-toastHolder.Position = UDim2.new(0.5, 0, 0, 114)
+toastHolder.Position = UDim2.new(0.5, 0, 0, 48)
 toastHolder.Size = UDim2.new(0, 340, 0, 140)
 toastHolder.BackgroundTransparency = 1
 toastHolder.Parent = gui
@@ -605,9 +669,9 @@ local function popupButton(label: string, x: number, color: Color3): TextButton
 	corner(b, 10)
 	return b
 end
-local equipNew = popupButton("つれていく", 0, BLUE)
-local closePopup = popupButton("とじる", 0.5, GRAY)
-local hatchedId: string? = nil
+-- 生まれたドラゴンは自動で仲間になるので、ボタンは「やったね！」だけ
+local closePopup = popupButton("やったね！", 0, BLUE)
+closePopup.Size = UDim2.new(1, -16, 0, 46)
 
 showHatch = function(id: string, isNew: boolean)
 	local dragon = Config.findDragon(id)
@@ -615,11 +679,10 @@ showHatch = function(id: string, isNew: boolean)
 		return
 	end
 	local rarity = Config.Rarities[dragon.rarity]
-	hatchedId = id
 	hatchStroke.Color = rarity.color
 	hatchTitle.Text = if isNew
-		then "🐣 新しいドラゴンが生まれた！"
-		else "🐣 ドラゴンが生まれた！"
+		then "🐣 新しいドラゴンが仲間になった！"
+		else "🐣 ドラゴンが仲間になった！"
 	hatchRarity.Text = string.rep("★", dragon.rarity) .. " " .. rarity.name
 	hatchRarity.TextColor3 = rarity.color
 	hatchName.Text = dragon.name
@@ -631,13 +694,7 @@ showHatch = function(id: string, isNew: boolean)
 	TweenService:Create(hatchPopup, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Size = UDim2.new(0, 320, 0, 250) })
 		:Play()
 end
-equipNew.Activated:Connect(function()
-	hatchPopup.Visible = false
-	if hatchedId then
-		local ok, msg = dragonAction:InvokeServer("equip", hatchedId)
-		toast(msg, ok)
-	end
-end)
+
 closePopup.Activated:Connect(function()
 	hatchPopup.Visible = false
 end)
