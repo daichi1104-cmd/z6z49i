@@ -269,7 +269,8 @@ local function pickUpEgg(player: Player, zoneIndex: number)
 	local egg = Instance.new("Part")
 	egg.Name = "CarriedEgg"
 	egg.Shape = Enum.PartType.Ball
-	egg.Size = Vector3.one * 2.4
+	local eggSize = 2.2 * Config.EggScale[zoneIndex]
+	egg.Size = Vector3.one * eggSize
 	egg.Color = Config.Zones[zoneIndex].eggColor
 	egg.CanCollide = false
 	egg.CanQuery = false
@@ -279,7 +280,8 @@ local function pickUpEgg(player: Player, zoneIndex: number)
 	mesh.MeshType = Enum.MeshType.Sphere
 	mesh.Scale = Vector3.new(1, 1.3, 1)
 	mesh.Parent = egg
-	egg.CFrame = head.CFrame * CFrame.new(0, 2.6, 0)
+	-- 頭の上にのせる（大きいたまごほど高い位置）
+	egg.CFrame = head.CFrame * CFrame.new(0, 0.8 + eggSize * 0.65, 0)
 	local weld = Instance.new("WeldConstraint")
 	weld.Part0 = head
 	weld.Part1 = egg

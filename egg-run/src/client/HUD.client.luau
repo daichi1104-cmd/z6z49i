@@ -658,19 +658,22 @@ local function refreshCageEggs()
 		if slot then
 			local p = Instance.new("Part")
 			p.Shape = Enum.PartType.Ball
-			p.Size = Vector3.one * 2.6
+			-- レアなたまごほど大きい（檻のすき間に入るよう、少しひかえめ）
+			local size = 2.2 * (1 + (Config.EggScale[egg.zone] - 1) * 0.6)
+			p.Size = Vector3.one * size
 			p.Anchored = true
 			p.CanCollide = false
 			p.CanQuery = false
 			p.CanTouch = false
 			p.Color = Config.Zones[egg.zone].eggColor
-			p.CFrame = slot.CFrame
+			p.CFrame = CFrame.new(slot.Position.X, 1.3 + size * 0.65, slot.Position.Z)
 			local mesh = Instance.new("SpecialMesh")
 			mesh.MeshType = Enum.MeshType.Sphere
 			mesh.Scale = Vector3.new(1, 1.3, 1)
 			mesh.Parent = p
 			p:SetAttribute("ReadyAt", egg.readyAt)
-			p:SetAttribute("BaseY", slot.Position.Y)
+			-- クッション（高さ 1.3）の上にのせる
+			p:SetAttribute("BaseY", 1.3 + size * 0.65)
 			p.Parent = cageModel
 			table.insert(eggParts, p)
 		end

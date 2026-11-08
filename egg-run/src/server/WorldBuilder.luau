@@ -2,6 +2,7 @@
 -- ベースの中心は原点。道は -Z 方向（スポーンしたときに向いている方向）へ伸びる
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 
@@ -12,6 +13,8 @@ local TRACK_WIDTH = 90
 local ROAD_WIDTH = 24
 
 local world: Folder
+-- ゆっくり回る・浮かぶもの（たまごと結晶）
+local spinners: { { egg: BasePart, eggCenter: Vector3, crystals: { any } } } = {}
 
 local function part(props: { [string]: any }): Part
 	local p = Instance.new("Part")
@@ -479,21 +482,128 @@ local function buildZone(index: number, zone, zStart: number, zEnd: number, rng:
 		end
 	end
 
-	-- たまごの台
+	-- たまごの台（遠いゾーンほど豪華になる）
 	local eggPos = Vector3.new(0, 0, -zone.distance)
-	cylinder(eggPos + Vector3.new(0, 1, 0), 9, 2, {
-		Name = "EggPedestal",
-		Color = Color3.fromRGB(240, 240, 240),
-		Material = Enum.Material.Marble,
+	local scale = Config.EggScale[index]
+	local glow = zone.eggColor
+	local gold = Color3.fromRGB(255, 205, 70)
+	local trim = if index >= 5
+		then gold
+		elseif index >= 3 then Color3.fromRGB(200, 205, 220)
+		else Color3.fromRGB(150, 120, 90)
+	local trimMat = if index >= 3 then Enum.Material.Metal else Enum.Material.Wood
+	local stone = Color3.fromRGB(70, 72, 82)
+	local pedestal = Instance.new("Model")
+	pedestal.Name = "EggPedestal" .. index
+	pedestal.Parent = world
+	-- 3段の階段（1段 1 スタッドなので歩いてのぼれる）
+	local steps = {
+		{ 16, stone, Enum.Material.Slate },
+		{ 12.5, Color3.fromRGB(95, 98, 110), Enum.Material.Slate },
+		{ 9, Color3.fromRGB(240, 240, 245), Enum.Material.Marble },
+	}
+	for i, step in steps do
+		cylinder(eggPos + Vector3.new(0, i - 0.5, 0), step[1], 1, {
+			Name = "Step",
+			Color = step[2],
+			Material = step[3],
+			Parent = pedestal,
+		})
+		-- 段のふちの金属の帯
+		cylinder(eggPos + Vector3.new(0, i - 0.08, 0), step[1] + 0.3, 0.18, {
+			Name = "Trim",
+			Color = trim,
+			Material = trimMat,
+			CanCollide = false,
+			Parent = pedestal,
+		})
+	end
+	-- いちばん上の、光る輪
+	cylinder(eggPos + Vector3.new(0, 3.1, 0), 7, 0.2, {
+		Name = "GlowRing",
+		Color = glow,
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		Parent = pedestal,
 	})
+	cylinder(eggPos + Vector3.new(0, 3.15, 0), 6.2, 0.22, {
+		Name = "Inner",
+		Color = Color3.fromRGB(240, 240, 245),
+		Material = Enum.Material.Marble,
+		CanCollide = false,
+		Parent = pedestal,
+	})
+	-- 一番下の段に光るもよう
+	for i = 1, 8 do
+		local a = i / 8 * math.pi * 2
+		part({
+			Name = "Rune",
+			Size = Vector3.new(0.3, 0.12, 1.4),
+			CFrame = CFrame.new(eggPos + Vector3.new(math.cos(a) * 7, 1.02, math.sin(a) * 7)) * CFrame.Angles(0, -a, 0),
+			Color = glow,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+			Parent = pedestal,
+		})
+	end
+	-- 柱と、その上で回る結晶（ゾーンが進むほど柱がふえて高くなる）
+	local crystals = {}
+	local pillars = math.min(2 + index, 6)
+	local pillarHeight = 4 + index * 1.2
+	for i = 1, pillars do
+		local a = (i / pillars) * math.pi * 2 + math.pi / pillars
+		local base = eggPos + Vector3.new(math.cos(a) * 7.3, 1, math.sin(a) * 7.3)
+		cylinder(base + Vector3.new(0, pillarHeight / 2, 0), 1.1, pillarHeight, {
+			Name = "Pillar",
+			Color = Color3.fromRGB(230, 230, 238),
+			Material = Enum.Material.Marble,
+			Parent = pedestal,
+		})
+		cylinder(base + Vector3.new(0, pillarHeight + 0.2, 0), 1.6, 0.4, {
+			Name = "Cap",
+			Color = trim,
+			Material = trimMat,
+			Parent = pedestal,
+		})
+		local crystal = part({
+			Name = "Crystal",
+			Size = Vector3.new(0.9, 1.6, 0.9),
+			CFrame = CFrame.new(base + Vector3.new(0, pillarHeight + 1.6, 0)),
+			Color = glow,
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+			CanQuery = false,
+			Parent = pedestal,
+		})
+		table.insert(crystals, { part = crystal, base = base + Vector3.new(0, pillarHeight + 1.6, 0), phase = i })
+	end
+	-- 遠くからでも見える光の柱（レアなほど太い）
+	if index >= 2 then
+		local beam = cylinder(eggPos + Vector3.new(0, 40, 0), 2 + index, 70, {
+			Name = "LightBeam",
+			Color = glow,
+			Material = Enum.Material.Neon,
+			Transparency = 0.82,
+			CanCollide = false,
+			CanQuery = false,
+			CastShadow = false,
+			Parent = pedestal,
+		})
+		beam.CanTouch = false
+	end
+
+	local eggSize = 4 * scale
+	local eggY = 3.3 + eggSize * 0.65 + 0.8
 	local egg = part({
 		Name = "Egg" .. index,
 		Shape = Enum.PartType.Ball,
-		Size = Vector3.one * 4,
-		Position = eggPos + Vector3.new(0, 5, 0),
+		Size = Vector3.one * eggSize,
+		CFrame = CFrame.new(eggPos + Vector3.new(0, eggY, 0)),
 		Color = zone.eggColor,
 		Material = Enum.Material.SmoothPlastic,
+		Reflectance = 0.1,
 		CanCollide = false,
+		Parent = pedestal,
 	})
 	local mesh = Instance.new("SpecialMesh")
 	mesh.MeshType = Enum.MeshType.Sphere
@@ -501,10 +611,23 @@ local function buildZone(index: number, zone, zStart: number, zEnd: number, rng:
 	mesh.Parent = egg
 	local light = Instance.new("PointLight")
 	light.Color = zone.eggColor
-	light.Range = 14
+	light.Range = 14 + index * 3
 	light.Brightness = 3
 	light.Parent = egg
-	label(egg, string.format("🥚 %d コイン", zone.reward), 5, 12, 2.5, Color3.fromRGB(255, 235, 120))
+	if index >= 4 then
+		local sparkles = Instance.new("Sparkles")
+		sparkles.SparkleColor = zone.eggColor
+		sparkles.Parent = egg
+	end
+	label(
+		egg,
+		string.format("🥚 %d コイン", zone.reward),
+		eggSize * 0.65 + 2.5,
+		12,
+		2.5,
+		Color3.fromRGB(255, 235, 120)
+	)
+	table.insert(spinners, { egg = egg, eggCenter = eggPos + Vector3.new(0, eggY, 0), crystals = crystals })
 
 	-- 敵の出てくる場所（たまごを囲む）
 	local homes = {}
@@ -577,6 +700,25 @@ function WorldBuilder.build()
 		Transparency = 0.6,
 	})
 	buildDistanceMarkers(zStart)
+
+	-- たまごはゆっくり回って浮き、結晶はくるくる回る（1秒に 20 回だけ動かして軽くする）
+	local t, acc = 0, 0
+	RunService.Heartbeat:Connect(function(dt)
+		t += dt
+		acc += dt
+		if acc < 0.05 then
+			return
+		end
+		acc = 0
+		for _, s in spinners do
+			s.egg.CFrame = CFrame.new(s.eggCenter + Vector3.new(0, math.sin(t * 1.5) * 0.4, 0))
+				* CFrame.Angles(0, t * 0.6, 0)
+			for _, c in s.crystals do
+				c.part.CFrame = CFrame.new(c.base + Vector3.new(0, math.sin(t * 2 + c.phase) * 0.3, 0))
+					* CFrame.Angles(0, t * 1.5 + c.phase, math.rad(15))
+			end
+		end
+	end)
 
 	return {
 		folder = world,
