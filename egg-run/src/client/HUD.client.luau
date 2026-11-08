@@ -308,6 +308,16 @@ local GREEN = Color3.fromRGB(50, 170, 80)
 local GRAY = Color3.fromRGB(90, 90, 105)
 local BLUE = Color3.fromRGB(60, 120, 220)
 
+-- ドラゴンの説明に、こうげき力をつけ足す
+local function dragonDesc(dragon): string
+	local a = dragon.attack
+	if not a then
+		return dragon.desc
+	end
+	local shots = if a.shots > 1 then string.format("×%d", a.shots) else ""
+	return string.format("%s ／ ⚔️%d%s", dragon.desc, a.damage, shots)
+end
+
 render = function()
 	for _, c in list:GetChildren() do
 		if c:IsA("Frame") then
@@ -341,12 +351,20 @@ render = function()
 		for i, dragon in Config.Dragons do
 			local owned = ownedDragons:FindFirstChild(dragon.id) ~= nil
 			if dragon.id == equipped then
-				row(i, "🐉 " .. dragon.name, dragon.desc, "お休み", Color3.fromRGB(200, 120, 40), true, function()
-					local ok, msg = dragonAction:InvokeServer("unequip")
-					toast(msg, ok)
-				end)
+				row(
+					i,
+					"🐉 " .. dragon.name,
+					dragonDesc(dragon),
+					"お休み",
+					Color3.fromRGB(200, 120, 40),
+					true,
+					function()
+						local ok, msg = dragonAction:InvokeServer("unequip")
+						toast(msg, ok)
+					end
+				)
 			elseif owned then
-				row(i, "🐉 " .. dragon.name, dragon.desc, "つれていく", BLUE, true, function()
+				row(i, "🐉 " .. dragon.name, dragonDesc(dragon), "つれていく", BLUE, true, function()
 					local ok, msg = dragonAction:InvokeServer("equip", dragon.id)
 					toast(msg, ok)
 				end)
@@ -355,7 +373,7 @@ render = function()
 				row(
 					i,
 					"🐉 " .. dragon.name,
-					dragon.desc,
+					dragonDesc(dragon),
 					string.format("🪙 %d", dragon.price),
 					if canBuy then GREEN else Color3.fromRGB(150, 90, 60),
 					true,

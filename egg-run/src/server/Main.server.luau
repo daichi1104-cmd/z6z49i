@@ -507,6 +507,19 @@ enemyFolder.Parent = workspace
 for _, home in world.enemyHomes do
 	Enemies.spawn(home.position, home.zoneIndex, home.boss, enemyFolder)
 end
+-- 敵をたおしたら、たおしたプレイヤーにコイン
+Enemies.onDefeated(function(player, enemy)
+	local d = player and data[player]
+	if not player or not d then
+		return
+	end
+	local zone = Config.Zones[enemy.zoneIndex]
+	local bounty = math.max(1, math.floor(zone.reward * Config.EnemyBountyRate * (if enemy.boss then 5 else 1)))
+	d.coins += bounty
+	syncStats(player)
+	local what = if enemy.boss then "ボス" else zone.name .. "の敵"
+	notify:FireClient(player, string.format("⚔️ %sをたおした！ +%d コイン", what, bounty), true)
+end)
 Enemies.start(function(player)
 	local d = data[player]
 	return if d then damageMult(d) else 1

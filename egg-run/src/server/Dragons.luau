@@ -2,14 +2,24 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Enemies = require(script.Parent:WaitForChild("Enemies"))
 
 local Dragons = {}
 
 local folder: Folder
-local followers: { [Player]: { model: Model, cf: CFrame, scale: number } } = {}
+type Follower = {
+	model: Model,
+	cf: CFrame,
+	scale: number,
+	dragon: any,
+	lastAttack: number,
+	target: any?,
+}
+local followers: { [Player]: Follower } = {}
 
 function Dragons.find(id: string?)
 	for _, d in Config.Dragons do
@@ -256,7 +266,90 @@ function Dragons.equip(player: Player, id: string?)
 	local start = if root then root.CFrame else CFrame.new(0, 5, 0)
 	model:PivotTo(start)
 	model.Parent = folder
-	followers[player] = { model = model, cf = start, scale = SCALE[dragon.shape] or 1 }
+	followers[player] = {
+		model = model,
+		cf = start,
+		scale = SCALE[dragon.shape] or 1,
+		dragon = dragon,
+		lastAttack = 0,
+		target = nil,
+	}
+end
+
+-- 当たったところで、光がふくらんで消える
+local function burst(position: Vector3, color: Color3, size: number)
+	local p = Instance.new("Part")
+	p.Shape = Enum.PartType.Ball
+	p.Size = Vector3.one
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Material = Enum.Material.Neon
+	p.Color = color
+	p.CFrame = CFrame.new(position)
+	p.Parent = folder
+	TweenService:Create(p, TweenInfo.new(0.3), { Size = Vector3.one * size, Transparency = 1 }):Play()
+	task.delay(0.3, function()
+		p:Destroy()
+	end)
+end
+
+-- 口から敵へ、光の玉を飛ばす
+local function shoot(player: Player, f: Follower, enemy, headOffsetX: number)
+	local attack = f.dragon.attack
+	if not Enemies.isAlive(enemy) or not f.model.Parent then
+		return
+	end
+	local from = (f.cf * CFrame.new(headOffsetX * f.scale, 1.5 * f.scale, -2.5 * f.scale)).Position
+	local to = Enemies.centerOf(enemy)
+	local ball = Instance.new("Part")
+	ball.Shape = Enum.PartType.Ball
+	ball.Size = Vector3.one * (0.8 + attack.damage / 40)
+	ball.Anchored = true
+	ball.CanCollide = false
+	ball.CanQuery = false
+	ball.CanTouch = false
+	ball.Material = Enum.Material.Neon
+	ball.Color = attack.color
+	ball.CFrame = CFrame.new(from)
+	local light = Instance.new("PointLight")
+	light.Color = attack.color
+	light.Range = 8
+	light.Parent = ball
+	ball.Parent = folder
+	local travel = math.clamp((to - from).Magnitude / 120, 0.08, 0.45)
+	TweenService:Create(ball, TweenInfo.new(travel, Enum.EasingStyle.Linear), { CFrame = CFrame.new(to) }):Play()
+	task.delay(travel, function()
+		ball:Destroy()
+		if Enemies.isAlive(enemy) then
+			burst(Enemies.centerOf(enemy), attack.color, 3 + attack.damage / 15)
+			Enemies.damage(enemy, attack.damage, player)
+		end
+	end)
+end
+
+local TRIPLE_HEADS = { -1.8, 0, 1.8 }
+
+local function tryAttack(player: Player, f: Follower)
+	local attack = f.dragon.attack
+	if not attack then
+		return
+	end
+	local now = os.clock()
+	if now - f.lastAttack < attack.cooldown then
+		return
+	end
+	local enemy = Enemies.findNearest(f.cf.Position, attack.range)
+	f.target = enemy
+	if not enemy then
+		return
+	end
+	f.lastAttack = now
+	for i = 1, attack.shots do
+		local headX = if attack.shots == 3 then TRIPLE_HEADS[i] else 0
+		task.delay((i - 1) * 0.12, shoot, player, f, enemy, headX)
+	end
 end
 
 function Dragons.start()
@@ -269,8 +362,13 @@ function Dragons.start()
 		t += dt
 		for player, f in followers do
 			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 			if not root then
 				continue
+			end
+			-- 近くの敵を自動でこうげき（持ち主が生きている間だけ）
+			if humanoid and humanoid.Health > 0 then
+				tryAttack(player, f)
 			end
 			-- 右うしろ上に浮かぶ
 			local look = root.CFrame.LookVector
@@ -285,7 +383,16 @@ function Dragons.start()
 				+ right * (4 + f.scale * 2)
 				- flatLook * (4 + f.scale * 2)
 				+ Vector3.new(0, 2 + f.scale + bob, 0)
-			local goal = CFrame.lookAt(goalPos, goalPos + flatLook)
+			-- 敵をねらっている間は、そちらを向く
+			local faceDir = flatLook
+			if f.target and Enemies.isAlive(f.target) then
+				local toEnemy = Enemies.centerOf(f.target) - goalPos
+				toEnemy = Vector3.new(toEnemy.X, 0, toEnemy.Z)
+				if toEnemy.Magnitude > 0.1 then
+					faceDir = toEnemy.Unit
+				end
+			end
+			local goal = CFrame.lookAt(goalPos, goalPos + faceDir)
 			-- 遠すぎたら瞬間移動、ふだんはなめらかに追う
 			if (f.cf.Position - goalPos).Magnitude > 80 then
 				f.cf = goal

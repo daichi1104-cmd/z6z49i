@@ -19,9 +19,20 @@ type Enemy = {
 	size: number,
 	phase: number,
 	lastHit: { [Player]: number },
+	zoneIndex: number,
+	boss: boolean,
+	hp: number,
+	maxHp: number,
+	dead: boolean,
+	respawnAt: number,
+	parent: Instance,
+	body: BasePart,
+	baseColor: Color3,
+	bar: Frame,
 }
 
 local active: { Enemy } = {}
+local defeatHandler: ((Player?, Enemy) -> ())? = nil
 
 local function piece(
 	model: Model,
@@ -89,6 +100,26 @@ function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: 
 		light.Parent = body
 	end
 
+	-- 体力ゲージ
+	local gauge = Instance.new("BillboardGui")
+	gauge.Size = UDim2.new(size * 0.9, 0, 0.5 + size * 0.04, 0)
+	gauge.StudsOffset = Vector3.new(0, size * 0.75, 0)
+	gauge.MaxDistance = 120
+	gauge.LightInfluence = 0
+	gauge.Adornee = body
+	gauge.Parent = model
+	local back = Instance.new("Frame")
+	back.Size = UDim2.fromScale(1, 1)
+	back.BackgroundColor3 = Color3.fromRGB(40, 20, 20)
+	back.BorderSizePixel = 0
+	back.Parent = gauge
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.fromScale(1, 1)
+	bar.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+	bar.BorderSizePixel = 0
+	bar.Parent = back
+
+	local maxHp = zone.enemyHealth * (if boss then Config.BossHealthMult else 1)
 	table.insert(active, {
 		model = model,
 		home = home,
@@ -99,11 +130,70 @@ function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: 
 		size = size,
 		phase = math.random() * 10,
 		lastHit = {},
+		zoneIndex = zoneIndex,
+		boss = boss,
+		hp = maxHp,
+		maxHp = maxHp,
+		dead = false,
+		respawnAt = 0,
+		parent = parent,
+		body = body,
+		baseColor = zone.enemyColor,
+		bar = bar,
 	})
 end
 
 local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
+end
+
+local function centerOf(e: Enemy): Vector3
+	return e.body.Position
+end
+Enemies.centerOf = centerOf
+
+-- position から range 以内で一番近い、生きている敵
+function Enemies.findNearest(position: Vector3, range: number): Enemy?
+	local best, bestDist = nil, range
+	for _, e in active do
+		if not e.dead then
+			local d = (centerOf(e) - position).Magnitude
+			if d < bestDist then
+				best, bestDist = e, d
+			end
+		end
+	end
+	return best
+end
+
+function Enemies.isAlive(e: Enemy): boolean
+	return not e.dead
+end
+
+-- たおしたときに呼ばれる関数を登録（だれがたおしたか、どの敵か）
+function Enemies.onDefeated(handler: (Player?, Enemy) -> ())
+	defeatHandler = handler
+end
+
+function Enemies.damage(e: Enemy, amount: number, attacker: Player?)
+	if e.dead then
+		return
+	end
+	e.hp = math.max(0, e.hp - amount)
+	e.bar.Size = UDim2.fromScale(e.hp / e.maxHp, 1)
+	-- 当たったら一瞬白く光る
+	e.body.Color = Color3.new(1, 1, 1)
+	task.delay(0.1, function()
+		e.body.Color = e.baseColor
+	end)
+	if e.hp <= 0 then
+		e.dead = true
+		e.respawnAt = os.clock() + (if e.boss then Config.BossRespawnTime else Config.EnemyRespawnTime)
+		e.model.Parent = nil
+		if defeatHandler then
+			defeatHandler(attacker, e)
+		end
+	end
 end
 
 -- getDamageMult(player) は、よろいやドラゴンで減ったあとのダメージ倍率を返す
@@ -123,6 +213,18 @@ function Enemies.start(getDamageMult: (Player) -> number, onHit: ((Player, Vecto
 		end
 
 		for _, e in active do
+			-- たおされた敵は、時間がたつと持ち場で復活する
+			if e.dead then
+				if os.clock() >= e.respawnAt then
+					e.dead = false
+					e.hp = e.maxHp
+					e.bar.Size = UDim2.fromScale(1, 1)
+					e.pos = e.home
+					e.model:PivotTo(CFrame.new(e.home + Vector3.new(0, e.size / 2, 0)))
+					e.model.Parent = e.parent
+				end
+				continue
+			end
 			-- 近くにだれもいない敵は動かさない
 			local target = nil
 			local best = Config.EnemyAggroRange

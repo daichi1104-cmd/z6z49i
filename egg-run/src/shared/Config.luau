@@ -28,6 +28,7 @@ Config.Treadmills = {
 Config.Zones = {
 	{
 		name = "草原",
+		enemyHealth = 30,
 		distance = 300,
 		enemies = 1,
 		enemySpeed = 12,
@@ -41,6 +42,7 @@ Config.Zones = {
 	},
 	{
 		name = "砂漠",
+		enemyHealth = 90,
 		distance = 800,
 		enemies = 2,
 		enemySpeed = 22,
@@ -54,6 +56,7 @@ Config.Zones = {
 	},
 	{
 		name = "雪原",
+		enemyHealth = 220,
 		distance = 1500,
 		enemies = 3,
 		enemySpeed = 32,
@@ -67,6 +70,7 @@ Config.Zones = {
 	},
 	{
 		name = "火山",
+		enemyHealth = 500,
 		distance = 2400,
 		enemies = 4,
 		enemySpeed = 46,
@@ -80,6 +84,7 @@ Config.Zones = {
 	},
 	{
 		name = "雲の上",
+		enemyHealth = 1000,
 		distance = 3500,
 		enemies = 5,
 		enemySpeed = 64,
@@ -136,9 +141,11 @@ Config.Items = {
 -- ドラゴンの仲間（1体だけ連れて行ける。後ろをついてきて力をくれる）
 -- shape: 見た目の種類 / trainMult: トレーニング倍率に掛ける / coinMult: たまごのコイン倍率
 -- damageMult: 受けるダメージの倍率 / walkBonus: 走る速さに足す
+-- attack: 近くの敵を自動でこうげき（damage = 1発の威力、shots = 1回に撃つ数、range = 届く距離、cooldown = 何秒ごとか）
 Config.Dragons = {
 	{
 		id = "Chibi",
+		attack = { damage = 8, shots = 1, range = 35, cooldown = 1, color = Color3.fromRGB(150, 220, 255) },
 		name = "ちびドラゴン",
 		price = 0,
 		desc = "はじめの仲間。トレーニング 1.2倍",
@@ -148,6 +155,7 @@ Config.Dragons = {
 	},
 	{
 		id = "Thunder",
+		attack = { damage = 15, shots = 1, range = 45, cooldown = 0.7, color = Color3.fromRGB(255, 240, 90) },
 		name = "いかずちドラゴン",
 		price = 250,
 		desc = "走る速さ +8",
@@ -157,6 +165,7 @@ Config.Dragons = {
 	},
 	{
 		id = "Gaia",
+		attack = { damage = 40, shots = 1, range = 40, cooldown = 1.5, color = Color3.fromRGB(255, 120, 30) },
 		name = "ガイアマグマ",
 		price = 800,
 		desc = "大地とマグマのドラゴン。ダメージ 30% ダウン",
@@ -166,6 +175,7 @@ Config.Dragons = {
 	},
 	{
 		id = "Triple",
+		attack = { damage = 20, shots = 3, range = 45, cooldown = 1.2, color = Color3.fromRGB(255, 210, 80) },
 		name = "トリプルヘッド",
 		price = 2000,
 		desc = "三つ首の金のドラゴン。たまごのコイン 2倍",
@@ -175,6 +185,7 @@ Config.Dragons = {
 	},
 	{
 		id = "Giga",
+		attack = { damage = 90, shots = 1, range = 55, cooldown = 1.6, color = Color3.fromRGB(255, 80, 40) },
 		name = "ギガザウルス",
 		price = 5000,
 		desc = "巨大な怪獣ドラゴン。トレーニング 2倍＋走る速さ +15",
@@ -188,5 +199,11 @@ Config.Dragons = {
 -- 敵が反応する距離と、たまごから離れて追いかけてくる限界
 Config.EnemyAggroRange = 55
 Config.EnemyLeashRange = 120
+
+-- 敵をたおしたとき：ボスは体力 4倍、たまごのごほうびの 30% のコイン、何秒後に復活するか
+Config.BossHealthMult = 4
+Config.EnemyBountyRate = 0.3
+Config.EnemyRespawnTime = 12
+Config.BossRespawnTime = 30
 
 return Config
