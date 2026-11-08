@@ -312,7 +312,7 @@ local function makeTab(label: string, x: number)
 	return b
 end
 tabs.items = makeTab("👟 アイテム", 0)
-tabs.dragons = makeTab("🐉 ドラゴン", 1 / 3)
+tabs.dragons = makeTab("🐉 仲間", 1 / 3)
 tabs.cage = makeTab("🥚 檻", 2 / 3)
 
 local list = Instance.new("ScrollingFrame")
@@ -457,6 +457,7 @@ render = function()
 			end
 			local color = if rarity then rarity.color else nil
 			if dragon.id == equipped then
+				name = "⭐ついて来ている　" .. name
 				row(order, name, dragonDesc(dragon), "お休み", Color3.fromRGB(200, 120, 40), true, function()
 					local ok, msg = dragonAction:InvokeServer("unequip")
 					toast(msg, ok)
@@ -482,12 +483,14 @@ render = function()
 			end
 			return x.id < y.id
 		end)
-		shopTitle.Text = string.format("📖 図鑑 %d / %d", #hatched, #Config.HatchDragons)
+		shopTitle.Text =
+			string.format("🐉 仲間（ついて来るのは1匹）図鑑 %d/%d", #hatched, #Config.HatchDragons)
+		-- いまついて来ている1匹を一番上に、そのあと 生まれた仲間、はじめの仲間
 		for i, dragon in hatched do
-			dragonRow(i, dragon, owned[dragon.id])
+			dragonRow(if dragon.id == equipped then 0 else i, dragon, owned[dragon.id])
 		end
 		for i, dragon in Config.Dragons do
-			dragonRow(1000 + i, dragon)
+			dragonRow(if dragon.id == equipped then 0 else 1000 + i, dragon)
 		end
 	else
 		-- 檻
@@ -620,7 +623,7 @@ sideButton("🛒 ショップ", -75, GREEN, function()
 		openShop("items")
 	end
 end)
-sideButton("🐉 ドラゴン", -25, Color3.fromRGB(140, 70, 200), function()
+sideButton("🐉 仲間", -25, Color3.fromRGB(140, 70, 200), function()
 	openShop("dragons")
 end)
 local cageButton = sideButton("🥚 檻", 25, Color3.fromRGB(220, 140, 40), function()
@@ -669,9 +672,10 @@ local function popupButton(label: string, x: number, color: Color3): TextButton
 	corner(b, 10)
 	return b
 end
--- 生まれたドラゴンは自動で仲間になるので、ボタンは「やったね！」だけ
-local closePopup = popupButton("やったね！", 0, BLUE)
-closePopup.Size = UDim2.new(1, -16, 0, 46)
+-- 生まれたドラゴンは仲間の一覧に入る。「つれていく」で、いまの1匹と交代する
+local equipNew = popupButton("つれていく", 0, BLUE)
+local closePopup = popupButton("あとで", 0.5, GRAY)
+local hatchedId: string? = nil
 
 showHatch = function(id: string, isNew: boolean)
 	local dragon = Config.findDragon(id)
@@ -679,6 +683,7 @@ showHatch = function(id: string, isNew: boolean)
 		return
 	end
 	local rarity = Config.Rarities[dragon.rarity]
+	hatchedId = id
 	hatchStroke.Color = rarity.color
 	hatchTitle.Text = if isNew
 		then "🐣 新しいドラゴンが仲間になった！"
@@ -697,6 +702,14 @@ end
 
 closePopup.Activated:Connect(function()
 	hatchPopup.Visible = false
+	toast("「🐉 仲間」から いつでも えらべるよ", true)
+end)
+equipNew.Activated:Connect(function()
+	hatchPopup.Visible = false
+	if hatchedId then
+		local ok, msg = dragonAction:InvokeServer("equip", hatchedId)
+		toast(msg, ok)
+	end
 end)
 
 -- 檻の中に、自分のたまごを表示する（自分の画面にだけ見える）
