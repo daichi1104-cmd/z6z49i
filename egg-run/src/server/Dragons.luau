@@ -373,7 +373,104 @@ BUILDERS.phoenix = function(r, c, rarity)
 	return { mouths = { mouth }, top = 3.4, flapSpeed = 4, flapAmp = 26 }
 end
 
-local SCALE = { small = 1, winged = 1, magma = 1, triple = 1, giant = 1.4, phoenix = 1.1 }
+-- 海と風の守り神：銀色の流れるような体、大きなつばさ、背中と尾の先にひれ
+BUILDERS.guardian = function(r, c, rarity)
+	local belly = c:Lerp(Color3.fromRGB(150, 190, 210), 0.45)
+	local fin = Color3.fromRGB(60, 170, 170)
+	local glow = Color3.fromRGB(120, 255, 230)
+	r:ell(v(1.6, 1.5, 3.6), v(0, 0, 0), c)
+	r:ell(v(1.15, 1, 2.9), v(0, -0.3, -0.2), belly)
+	-- 体の横の光るすじ
+	for _, s in { -1, 1 } do
+		r:ell(v(0.1, 0.12, 2.6), v(s * 0.72, 0.05, 0.1), glow, v(0, s * 4, 0), GLOW)
+	end
+	chain(r, { v(0, 0.3, -1.4), v(0, 0.95, -2.05), v(0, 1.6, -2.45), v(0, 2.1, -2.7) }, 0.95, 0.7, c)
+	r:bone("Head", "Root", v(0, 2.1, -2.7))
+	local mouth = dragonHead(r, {
+		bone = "Head",
+		jaw = "Jaw",
+		pos = v(0, 2.35, -3.15),
+		size = 1.6,
+		color = c,
+		belly = belly,
+		horn = fin,
+		iris = glow,
+		glowEyes = true,
+	})
+	r:use("Root")
+	-- 背中のひれ
+	spines(r, v(0, 0.75, -1.2), v(0, 0.65, 1.3), 5, 0.6, 0.35, fin)
+	for _, s in { -1, 1 } do
+		leg(r, v(s * 0.5, -0.35, 0.9), v(s * 0.6, -0.85, 0.5), v(s * 0.6, -1.2, 0.85), 0.55, c, fin)
+		wing(r, s, if s < 0 then "WingL" else "WingR", {
+			shoulder = v(s * 0.5, 0.55, -0.6),
+			span = 5.6,
+			chord = 3,
+			bone = c,
+			skin = c:Lerp(Color3.fromRGB(170, 215, 230), 0.5),
+		})
+	end
+	local tip = tail(r, "Tail", v(0, 0, 1.7), v(0, -0.1, 1), 6, 5.6, 0.7, c, nil, fin)
+	-- 尾の先の、扇のようなひれ
+	r:tri(tip + v(0, 0, -0.3), tip + v(-0.9, 0, 0.9), tip + v(0, 0, 1.3), fin)
+	r:tri(tip + v(0, 0, -0.3), tip + v(0.9, 0, 0.9), tip + v(0, 0, 1.3), fin)
+	r:use("Root")
+	return { mouths = { mouth }, top = 4, flapSpeed = 3.5, flapAmp = 24 }
+end
+
+-- 海の巨大ドラゴン：クジラのような体、大きな胸びれ、尾びれ、光るもよう
+BUILDERS.leviathan = function(r, c, rarity)
+	local belly = c:Lerp(Color3.fromRGB(230, 240, 255), 0.75)
+	local glow = Color3.fromRGB(70, 255, 220)
+	r:ell(v(3, 2.6, 6), v(0, 0.1, 0.4), c)
+	r:ell(v(2.4, 1.5, 5.2), v(0, -0.55, 0.2), belly)
+	-- 光るもよう（背中の線と、横の丸）
+	for _, s in { -1, 1 } do
+		r:ell(v(0.14, 0.14, 3.4), v(s * 0.55, 1.22, 0.4), glow, v(-6, s * 6, 0), GLOW)
+		for i = 0, 2 do
+			r:ell(v(0.1, 0.42, 0.42), v(s * 1.43, 0.25, -0.6 + i * 1.1), glow, nil, GLOW)
+		end
+	end
+	-- 頭（大きく丸い。下あごが開く）
+	r:bone("Head", "Root", v(0, 0.1, -2.2))
+	r:ell(v(2.5, 2, 2.4), v(0, 0.2, -2.8), c)
+	for _, s in { -1, 1 } do
+		eye(r, v(s * 0.95, 0.45, -3.3), 0.42, glow, true)
+		r:limb(v(s * 0.5, 1, -2.8), v(s * 0.75, 1.5, -1.9), 0.22, IVORY)
+		r:limb(v(s * 0.75, 1.5, -1.9), v(s * 0.8, 1.6, -1.3), 0.14, IVORY)
+		for i = 0, 3 do
+			local x = s * (0.25 + i * 0.22)
+			r:spike(v(x, -0.35, -3.75 + i * 0.12), v(x, -0.6, -3.75 + i * 0.12), 0.1, IVORY)
+		end
+	end
+	r:ell(v(1.9, 0.3, 1.8), v(0, -0.45, -3.1), MOUTH)
+	r:bone("Jaw", "Head", v(0, -0.3, -2.2))
+	r:ell(v(2.1, 0.6, 2.1), v(0, -0.75, -2.95), belly)
+	r:use("Root")
+	-- 胸びれ（つばさのように動く）
+	for _, s in { -1, 1 } do
+		local name = if s < 0 then "WingL" else "WingR"
+		local base = v(s * 1.2, -0.4, -1)
+		r:bone(name, "Root", base)
+		r:tri(base, base + v(s * 3.4, -0.6, 0.6), base + v(0, 0, 1.6), c)
+		r:tri(base + v(s * 3.4, -0.6, 0.6), base + v(0, 0, 1.6), base + v(s * 2.2, -0.45, 1.5), c)
+		r:seg(base, base + v(s * 3.2, -0.55, 0.55), 0.3, 0.2, glow, GLOW)
+		r:use("Root")
+	end
+	-- 背びれ
+	r:tri(v(0, 1.2, 0.6), v(0, 2.1, 1.5), v(0, 1.1, 1.9), c)
+	local tip = tail(r, "Tail", v(0, 0, 3.2), v(0, 0.1, 1), 4, 3.6, 1.6, c)
+	-- 尾びれ
+	for _, s in { -1, 1 } do
+		r:tri(tip + v(0, 0, -0.4), tip + v(s * 2.2, 0.1, 0.9), tip + v(s * 0.4, 0, 0.6), c)
+		r:seg(tip, tip + v(s * 2, 0.1, 0.8), 0.25, 0.15, glow, GLOW)
+	end
+	r:use("Root")
+	return { mouths = { v(0, -0.45, -3.9) }, top = 3, flapSpeed = 2, flapAmp = 18 }
+end
+
+local SCALE =
+	{ small = 1, winged = 1, magma = 1, triple = 1, giant = 1.4, phoenix = 1.1, guardian = 1.2, leviathan = 1.2 }
 
 -- レアなドラゴンほど少し大きい
 local function scaleOf(dragon): number

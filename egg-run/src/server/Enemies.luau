@@ -64,6 +64,8 @@ type BeastOpts = {
 	tailW: number,
 	wings: boolean?,
 	boss: boolean?,
+	wingSpan: number?,
+	wingSkin: Color3?,
 }
 
 -- 4本足の生き物（トカゲ・オオカミ・サンショウウオ・竜）
@@ -152,10 +154,10 @@ local function beast(r, o: BeastOpts): Look
 		for _, s in { -1, 1 } do
 			A.wing(r, s, if s < 0 then "WingL" else "WingR", {
 				shoulder = v(s * 0.22, 0.22, -0.25),
-				span = if o.boss then 1.6 else 1.2,
+				span = o.wingSpan or 1.2,
 				chord = 0.75,
 				bone = shade(c, 0.3),
-				skin = c:Lerp(Color3.fromRGB(40, 0, 60), 0.35),
+				skin = o.wingSkin or c:Lerp(Color3.fromRGB(40, 0, 60), 0.35),
 				mat = m,
 			})
 		end
@@ -220,6 +222,77 @@ local function scorpion(r, c: Color3): Look
 	return { legs = legs }
 end
 
+-- 最後のボス「やみの竜王」：黒い体に赤く光る割れ目、王冠の角、とげの鎧、光る胸の核、巨大なつばさ
+local function darkLord(r): Look
+	local body = Color3.fromRGB(28, 18, 34)
+	local armor = Color3.fromRGB(45, 40, 55)
+	local red = Color3.fromRGB(255, 40, 40)
+	local look = beast(r, {
+		color = body,
+		belly = Color3.fromRGB(70, 15, 20),
+		mat = Enum.Material.Basalt,
+		eye = red,
+		snout = 0.4,
+		horns = Color3.fromRGB(15, 10, 15),
+		spikes = armor,
+		cracks = red,
+		tailLen = 1.4,
+		tailW = 0.34,
+		wings = true,
+		boss = true,
+		wingSpan = 2.1,
+		wingSkin = Color3.fromRGB(90, 10, 20),
+	})
+	-- 王冠のような角（頭といっしょに動く）
+	r:use("Head")
+	local hp = v(0, 0.29, -0.78)
+	for i, a in { -70, -40, 40, 70 } do
+		local rad = math.rad(a)
+		local base = hp + v(math.sin(rad) * 0.18, 0.14, 0.02)
+		local tip = base + v(math.sin(rad) * 0.2, 0.32 - math.abs(a) / 400, 0.12)
+		r:spike(base, tip, 0.08, Color3.fromRGB(15, 10, 15))
+		r:ball(0.05, tip, red, GLOW)
+	end
+	-- 長くのびる、光る先の大角
+	for _, s in { -1, 1 } do
+		local h0 = hp + v(s * 0.16, 0.1, 0.08)
+		local h1 = hp + v(s * 0.42, 0.22, 0.2)
+		local h2 = hp + v(s * 0.55, 0.42, 0.42)
+		r:limb(h0, h1, 0.1, Color3.fromRGB(15, 10, 15))
+		r:limb(h1, h2, 0.07, Color3.fromRGB(15, 10, 15))
+		r:spike(h2, h2 + v(s * 0.05, 0.2, 0.12), 0.07, red, GLOW)
+		-- あごのとげ
+		r:spike(hp + v(s * 0.14, -0.14, 0.02), hp + v(s * 0.26, -0.3, 0.1), 0.07, armor)
+	end
+	r:use("Root")
+	-- 肩の鎧ととげ
+	for _, s in { -1, 1 } do
+		r:ell(v(0.34, 0.22, 0.4), v(s * 0.3, 0.2, -0.32), armor, v(0, 0, s * -25), Enum.Material.Metal)
+		for i = 0, 2 do
+			local base = v(s * (0.34 + i * 0.04), 0.27 - i * 0.03, -0.42 + i * 0.12)
+			r:spike(base, base + v(s * 0.14, 0.22, 0.06), 0.09, armor, Enum.Material.Metal)
+		end
+	end
+	-- 背中の大きなとげ
+	A.spines(r, v(0, 0.3, -0.25), v(0, 0.22, 0.45), 6, 0.34, 0.2, armor, Enum.Material.Metal)
+	-- 胸の光る核
+	r:ball(0.2, v(0, 0.02, -0.6), red, GLOW)
+	r:ell(v(0.32, 0.32, 0.08), v(0, 0.02, -0.56), armor, nil, Enum.Material.Metal)
+	-- 紫のほのおと、赤い光
+	local fire = Instance.new("Fire")
+	fire.Size = 14
+	fire.Heat = 6
+	fire.Color = Color3.fromRGB(140, 40, 255)
+	fire.SecondaryColor = Color3.fromRGB(255, 30, 60)
+	fire.Parent = r.root
+	local light = Instance.new("PointLight")
+	light.Color = red
+	light.Range = 30
+	light.Brightness = 3
+	light.Parent = r.root
+	return look
+end
+
 local function buildEnemy(zoneIndex: number, boss: boolean, size: number, color: Color3)
 	local r = Rig.new(if boss then "Boss" else "Enemy", size)
 	local look: Look
@@ -266,8 +339,11 @@ local function buildEnemy(zoneIndex: number, boss: boolean, size: number, color:
 			tailLen = 1,
 			tailW = 0.34,
 		})
+	elseif boss then
+		-- 最後のボス：やみの竜王
+		look = darkLord(r)
 	else
-		-- 雲の上：あらしの竜（ボスはさらに大きなつばさと光る角）
+		-- 雲の上：あらしの竜
 		look = beast(r, {
 			color = color,
 			belly = tint(color, 0.4),
@@ -279,7 +355,7 @@ local function buildEnemy(zoneIndex: number, boss: boolean, size: number, color:
 			tailLen = 1.2,
 			tailW = 0.26,
 			wings = true,
-			boss = boss,
+			wingSpan = 1.2,
 		})
 	end
 	return r:finish(), r.root, r.joints, look
@@ -287,7 +363,7 @@ end
 
 function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: Instance)
 	local zone = Config.Zones[zoneIndex]
-	local size = if boss then 12 else 4 + zoneIndex * 0.6
+	local size = if boss then 14 else 4 + zoneIndex * 0.6
 
 	local model, body, joints, look = buildEnemy(zoneIndex, boss, size, zone.enemyColor)
 	body.Name = "Body"
