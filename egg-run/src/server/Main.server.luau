@@ -75,7 +75,7 @@ local function loadData(player: Player): Data
 				d.dragons[tostring(id)] = owned == true
 			end
 		end
-		if typeof(value.dragon) == "string" and d.dragons[value.dragon] then
+		if typeof(value.dragon) == "string" and Dragons.find(value.dragon) then
 			d.dragon = value.dragon
 		elseif value.dragon == false then
 			d.dragon = nil
@@ -387,6 +387,12 @@ task.spawn(function()
 				end
 			end
 
+			-- フェニックスなどの回復
+			local dragon = equippedDragon(d)
+			if dragon and dragon.regen and humanoid.Health < humanoid.MaxHealth then
+				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + dragon.regen * TICK)
+			end
+
 			-- トレーニング
 			local tm = treadmillUnder(pos)
 			if tm then
@@ -452,7 +458,7 @@ buyItem.OnServerInvoke = function(player: Player, id: any)
 	return true, item.name .. " を手に入れた！"
 end
 
--- ドラゴン：action = "buy" / "equip" / "unequip"
+-- ドラゴン：action = "equip"（id のドラゴンを連れていく）/ "unequip"（お休み）。全員無料
 dragonAction.OnServerInvoke = function(player: Player, action: any, id: any)
 	local d = data[player]
 	if not d or typeof(action) ~= "string" then
@@ -463,21 +469,12 @@ dragonAction.OnServerInvoke = function(player: Player, action: any, id: any)
 		Dragons.equip(player, nil)
 		syncStats(player)
 		applyStats(player)
+		task.spawn(saveData, player)
 		return true, "ドラゴンをお休みさせた"
 	end
 	local dragon = if typeof(id) == "string" then Dragons.find(id) else nil
 	if not dragon then
 		return false, "そのドラゴンはいません"
-	end
-	if action == "buy" and not d.dragons[dragon.id] then
-		if d.coins < dragon.price then
-			return false, string.format("コインが %d 足りません", dragon.price - math.floor(d.coins))
-		end
-		d.coins -= dragon.price
-		d.dragons[dragon.id] = true
-		markOwned(player, "OwnedDragons", dragon.id)
-	elseif not d.dragons[dragon.id] then
-		return false, "まだ仲間になっていません"
 	end
 	d.dragon = dragon.id
 	Dragons.equip(player, dragon.id)

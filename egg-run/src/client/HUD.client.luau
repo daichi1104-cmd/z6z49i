@@ -21,7 +21,6 @@ local speedValue = stats:WaitForChild("スピード") :: IntValue
 local coinValue = stats:WaitForChild("コイン") :: IntValue
 local eggValue = stats:WaitForChild("たまご") :: IntValue
 local ownedItems = player:WaitForChild("OwnedItems")
-local ownedDragons = player:WaitForChild("OwnedDragons")
 
 local NEST = Vector3.new(0, 0, -50)
 
@@ -349,7 +348,6 @@ render = function()
 	else
 		local equipped = player:GetAttribute("Dragon")
 		for i, dragon in Config.Dragons do
-			local owned = ownedDragons:FindFirstChild(dragon.id) ~= nil
 			if dragon.id == equipped then
 				row(
 					i,
@@ -363,25 +361,11 @@ render = function()
 						toast(msg, ok)
 					end
 				)
-			elseif owned then
+			else
 				row(i, "🐉 " .. dragon.name, dragonDesc(dragon), "つれていく", BLUE, true, function()
 					local ok, msg = dragonAction:InvokeServer("equip", dragon.id)
 					toast(msg, ok)
 				end)
-			else
-				local canBuy = coinValue.Value >= dragon.price
-				row(
-					i,
-					"🐉 " .. dragon.name,
-					dragonDesc(dragon),
-					string.format("🪙 %d", dragon.price),
-					if canBuy then GREEN else Color3.fromRGB(150, 90, 60),
-					true,
-					function()
-						local ok, msg = dragonAction:InvokeServer("buy", dragon.id)
-						toast(msg, ok)
-					end
-				)
 			end
 		end
 	end

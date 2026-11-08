@@ -138,61 +138,63 @@ Config.Items = {
 	{ id = "Jump1", name = "ジャンプばね", price = 80, desc = "ジャンプ力アップ", jumpPower = 70 },
 }
 
--- ドラゴンの仲間（1体だけ連れて行ける。後ろをついてきて力をくれる）
+-- ドラゴンの仲間（全員無料。1体えらんで連れて行ける。後ろをついてきて、力をくれる）
 -- shape: 見た目の種類 / trainMult: トレーニング倍率に掛ける / coinMult: たまごのコイン倍率
--- damageMult: 受けるダメージの倍率 / walkBonus: 走る速さに足す
+-- damageMult: 受けるダメージの倍率 / walkBonus: 走る速さに足す / regen: 1秒に回復する体力
 -- attack: 近くの敵を自動でこうげき（damage = 1発の威力、shots = 1回に撃つ数、range = 届く距離、cooldown = 何秒ごとか）
 Config.Dragons = {
 	{
 		id = "Chibi",
-		attack = { damage = 8, shots = 1, range = 35, cooldown = 1, color = Color3.fromRGB(150, 220, 255) },
 		name = "ちびドラゴン",
-		price = 0,
-		desc = "はじめの仲間。トレーニング 1.2倍",
+		desc = "トレーニング 1.5倍",
 		shape = "small",
 		color = Color3.fromRGB(110, 200, 255),
-		trainMult = 1.2,
+		trainMult = 1.5,
+		attack = { damage = 8, shots = 1, range = 35, cooldown = 1, color = Color3.fromRGB(150, 220, 255) },
 	},
 	{
 		id = "Thunder",
-		attack = { damage = 15, shots = 1, range = 45, cooldown = 0.7, color = Color3.fromRGB(255, 240, 90) },
 		name = "いかずちドラゴン",
-		price = 250,
-		desc = "走る速さ +8",
+		desc = "走る速さ +10・速射",
 		shape = "winged",
 		color = Color3.fromRGB(255, 220, 60),
-		walkBonus = 8,
+		walkBonus = 10,
+		attack = { damage = 12, shots = 1, range = 45, cooldown = 0.5, color = Color3.fromRGB(255, 240, 90) },
 	},
 	{
 		id = "Gaia",
-		attack = { damage = 40, shots = 1, range = 40, cooldown = 1.5, color = Color3.fromRGB(255, 120, 30) },
 		name = "ガイアマグマ",
-		price = 800,
-		desc = "大地とマグマのドラゴン。ダメージ 30% ダウン",
+		desc = "大地とマグマの竜。ダメージ 40% ダウン",
 		shape = "magma",
 		color = Color3.fromRGB(200, 50, 30),
-		damageMult = 0.7,
+		damageMult = 0.6,
+		attack = { damage = 35, shots = 1, range = 40, cooldown = 1.3, color = Color3.fromRGB(255, 120, 30) },
 	},
 	{
 		id = "Triple",
-		attack = { damage = 20, shots = 3, range = 45, cooldown = 1.2, color = Color3.fromRGB(255, 210, 80) },
 		name = "トリプルヘッド",
-		price = 2000,
-		desc = "三つ首の金のドラゴン。たまごのコイン 2倍",
+		desc = "三つ首の金の竜。コイン 1.5倍",
 		shape = "triple",
 		color = Color3.fromRGB(240, 190, 50),
-		coinMult = 2,
+		coinMult = 1.5,
+		attack = { damage = 15, shots = 3, range = 45, cooldown = 1.2, color = Color3.fromRGB(255, 210, 80) },
 	},
 	{
 		id = "Giga",
-		attack = { damage = 90, shots = 1, range = 55, cooldown = 1.6, color = Color3.fromRGB(255, 80, 40) },
 		name = "ギガザウルス",
-		price = 5000,
-		desc = "巨大な怪獣ドラゴン。トレーニング 2倍＋走る速さ +15",
+		desc = "巨大な怪獣。こうげき力 最強",
 		shape = "giant",
 		color = Color3.fromRGB(70, 110, 80),
-		trainMult = 2,
-		walkBonus = 15,
+		attack = { damage = 70, shots = 1, range = 55, cooldown = 1.4, color = Color3.fromRGB(255, 80, 40) },
+	},
+	{
+		id = "Phoenix",
+		name = "フェニックス",
+		desc = "炎の不死鳥。体力が 1秒に 5 回復",
+		shape = "phoenix",
+		color = Color3.fromRGB(230, 60, 40),
+		regen = 5,
+		attack = { damage = 20, shots = 1, range = 50, cooldown = 0.9, color = Color3.fromRGB(255, 150, 40) },
 	},
 }
 

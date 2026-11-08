@@ -221,7 +221,49 @@ BUILDERS.giant = function(add, c: Color3)
 	add(BLOCK, Vector3.new(1.6, 1.6, 6), Vector3.new(0, -2.4, 4.4), c, Vector3.new(20, 0, 0), Enum.Material.Slate)
 end
 
-local SCALE = { small = 1, winged = 1, magma = 1, triple = 1, giant = 1.4 }
+BUILDERS.phoenix = function(add, c: Color3)
+	local orange = Color3.fromRGB(255, 140, 30)
+	local yellow = Color3.fromRGB(255, 220, 70)
+	add(BALL, Vector3.one * 2.4, Vector3.zero, c)
+	add(BALL, Vector3.one * 1.7, Vector3.new(0, 0.1, -0.6), yellow)
+	-- 頭・くちばし・とさか
+	local headPos = Vector3.new(0, 1.7, -1.5)
+	add(BALL, Vector3.one * 1.5, headPos, c)
+	eyes(add, headPos, 1.5)
+	add(BLOCK, Vector3.new(0.4, 0.35, 0.8), headPos + Vector3.new(0, -0.15, -0.9), yellow, Vector3.new(15, 0, 0))
+	for i, tilt in { -20, 0, 20 } do
+		add(
+			BLOCK,
+			Vector3.new(0.2, 1.4 - math.abs(tilt) / 40, 0.3),
+			headPos + Vector3.new(tilt / 60, 1, 0.3),
+			if i == 2 then yellow else orange,
+			Vector3.new(-30, 0, -tilt),
+			Enum.Material.Neon
+		)
+	end
+	-- 翼（内側から 赤 → オレンジ → 黄色 の羽を重ねる）
+	for _, s in { -1, 1 } do
+		add(BLOCK, Vector3.new(2.6, 0.25, 2), Vector3.new(s * 2.2, 0.8, 0.2), c, Vector3.new(0, 0, s * 25))
+		add(BLOCK, Vector3.new(2.4, 0.22, 1.6), Vector3.new(s * 4.3, 1.8, 0.4), orange, Vector3.new(0, s * -8, s * 30))
+		add(
+			BLOCK,
+			Vector3.new(2, 0.2, 1.1),
+			Vector3.new(s * 6, 3, 0.7),
+			yellow,
+			Vector3.new(0, s * -15, s * 38),
+			Enum.Material.Neon
+		)
+	end
+	-- 長い尾羽（扇のように広げる）
+	for i, yaw in { -18, 0, 18 } do
+		local color = if i == 2 then c else orange
+		local dir = Vector3.new(math.sin(math.rad(yaw)), 0, math.cos(math.rad(yaw)))
+		add(BLOCK, Vector3.new(0.5, 0.15, 4.5), Vector3.new(0, -0.6, 1) + dir * 3, color, Vector3.new(15, yaw, 0))
+		add(BALL, Vector3.one * 0.8, Vector3.new(0, -1.2, 1) + dir * 5.3, yellow, nil, Enum.Material.Neon)
+	end
+end
+
+local SCALE = { small = 1, winged = 1, magma = 1, triple = 1, giant = 1.4, phoenix = 1.1 }
 
 local function build(dragon): Model
 	local model = Instance.new("Model")
@@ -246,6 +288,18 @@ local function build(dragon): Model
 	text.Parent = nameTag
 	local first = model:FindFirstChildWhichIsA("BasePart")
 	model.PrimaryPart = first
+	if dragon.shape == "phoenix" and first then
+		local fire = Instance.new("Fire")
+		fire.Size = 3
+		fire.Heat = 2
+		fire.Color = Color3.fromRGB(255, 140, 30)
+		fire.SecondaryColor = Color3.fromRGB(255, 50, 20)
+		fire.Parent = first
+		local glow = Instance.new("PointLight")
+		glow.Color = Color3.fromRGB(255, 160, 60)
+		glow.Range = 12
+		glow.Parent = first
+	end
 	nameTag.Adornee = first
 	nameTag.Parent = model
 	return model
