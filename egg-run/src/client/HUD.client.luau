@@ -301,7 +301,7 @@ local tabs = {}
 local function makeTab(label: string, x: number)
 	local b = Instance.new("TextButton")
 	b.Position = UDim2.new(x, 6, 0, 46)
-	b.Size = UDim2.new(1 / 3, -10, 0, 34)
+	b.Size = UDim2.new(1 / 4, -10, 0, 34)
 	b.Font = Enum.Font.GothamBold
 	b.TextScaled = true
 	b.TextColor3 = Color3.new(1, 1, 1)
@@ -312,8 +312,9 @@ local function makeTab(label: string, x: number)
 	return b
 end
 tabs.items = makeTab("👟 アイテム", 0)
-tabs.dragons = makeTab("🐉 仲間", 1 / 3)
-tabs.cage = makeTab("🥚 檻", 2 / 3)
+tabs.dragons = makeTab("🐉 仲間", 1 / 4)
+tabs.book = makeTab("📖 図鑑", 2 / 4)
+tabs.cage = makeTab("🥚 檻", 3 / 4)
 
 local list = Instance.new("ScrollingFrame")
 list.Position = UDim2.new(0, 8, 0, 88)
@@ -413,6 +414,303 @@ local function dragonDesc(dragon): string
 	return string.format("%s ／ ⚔️%d%s", dragon.desc, a.damage, shots)
 end
 
+-- 図鑑：ドラゴンの絵を、四角と丸の部品で描く（右向き、正方形の中に 0〜1 の位置で置く）
+-- tone は "body"（体の色）/ "dark"（つばさ・とげ）/ "light"（おなか）/ "eye"
+type Piece = { tone: string, x: number, y: number, w: number, h: number, rot: number, round: number }
+local SHADOW = Color3.fromRGB(10, 10, 18)
+
+local function dragonPieces(shape: string): { Piece }
+	local list: { Piece } = {}
+	local function add(tone: string, x: number, y: number, w: number, h: number, rot: number?, round: number?)
+		table.insert(list, { tone = tone, x = x, y = y, w = w, h = h, rot = rot or 0, round = round or 0.5 })
+	end
+	-- 2点を結ぶ棒（首やしっぽ）
+	local function limb(tone: string, x1: number, y1: number, x2: number, y2: number, thick: number)
+		local dx, dy = x2 - x1, y2 - y1
+		add(tone, (x1 + x2) / 2, (y1 + y2) / 2, math.sqrt(dx * dx + dy * dy), thick, math.deg(math.atan2(dy, dx)))
+	end
+	local function eye(x: number, y: number, size: number?)
+		local s = size or 0.07
+		add("eye", x, y, s, s)
+		add("pupil", x + s * 0.2, y, s * 0.5, s * 0.5)
+	end
+	local function legs(y: number, w: number, h: number, x1: number, x2: number)
+		add("body", x1, y, w, h, 0, 0.3)
+		add("body", x2, y, w, h, 0, 0.3)
+	end
+
+	if shape == "small" then
+		add("dark", 0.6, 0.4, 0.24, 0.12, -35)
+		limb("body", 0.35, 0.68, 0.1, 0.62, 0.09)
+		add("body", 0.48, 0.64, 0.44, 0.36)
+		add("light", 0.52, 0.68, 0.26, 0.22)
+		legs(0.85, 0.1, 0.14, 0.38, 0.58)
+		add("dark", 0.66, 0.23, 0.05, 0.13, -20, 0.3)
+		add("body", 0.72, 0.4, 0.34, 0.3)
+		eye(0.8, 0.37, 0.08)
+		add("dark", 0.5, 0.44, 0.2, 0.1, -45)
+	elseif shape == "winged" then
+		add("dark", 0.46, 0.3, 0.52, 0.15, -25)
+		limb("body", 0.3, 0.6, 0.04, 0.68, 0.07)
+		add("body", 0.46, 0.58, 0.42, 0.22)
+		add("light", 0.48, 0.63, 0.28, 0.1)
+		legs(0.75, 0.07, 0.16, 0.36, 0.56)
+		limb("body", 0.6, 0.54, 0.78, 0.34, 0.1)
+		add("dark", 0.75, 0.21, 0.04, 0.11, -35, 0.3)
+		add("body", 0.82, 0.31, 0.22, 0.14)
+		eye(0.84, 0.29, 0.06)
+		add("dark", 0.38, 0.32, 0.5, 0.14, -60)
+	elseif shape == "magma" then
+		limb("body", 0.3, 0.66, 0.04, 0.78, 0.11)
+		for i, x in { 0.3, 0.42, 0.54, 0.66 } do
+			add("dark", x, 0.45 + (i == 1 and 0.03 or 0), 0.1, 0.1, 45, 0.15)
+		end
+		add("body", 0.48, 0.63, 0.52, 0.36)
+		add("light", 0.5, 0.7, 0.34, 0.16)
+		legs(0.85, 0.13, 0.18, 0.34, 0.6)
+		add("dark", 0.78, 0.36, 0.05, 0.12, 30, 0.3)
+		add("body", 0.8, 0.52, 0.28, 0.22)
+		eye(0.84, 0.48, 0.07)
+	elseif shape == "phoenix" then
+		add("dark", 0.42, 0.3, 0.42, 0.12, -55)
+		add("dark", 0.5, 0.3, 0.42, 0.12, -30)
+		limb("dark", 0.36, 0.64, 0.02, 0.5, 0.07)
+		limb("dark", 0.36, 0.66, 0.0, 0.66, 0.07)
+		limb("dark", 0.36, 0.68, 0.02, 0.82, 0.07)
+		add("body", 0.5, 0.62, 0.36, 0.24)
+		add("light", 0.52, 0.66, 0.22, 0.12)
+		legs(0.8, 0.05, 0.16, 0.44, 0.56)
+		limb("body", 0.6, 0.56, 0.74, 0.38, 0.09)
+		add("dark", 0.7, 0.22, 0.04, 0.13, -30)
+		add("dark", 0.75, 0.21, 0.04, 0.12, -10)
+		add("light", 0.88, 0.35, 0.09, 0.04, 10)
+		add("body", 0.78, 0.33, 0.18, 0.15)
+		eye(0.8, 0.31, 0.06)
+		add("dark", 0.42, 0.4, 0.42, 0.12, -35)
+	elseif shape == "triple" then
+		add("dark", 0.38, 0.4, 0.36, 0.13, -40)
+		limb("body", 0.25, 0.7, 0.02, 0.78, 0.08)
+		add("body", 0.4, 0.66, 0.42, 0.28)
+		add("light", 0.43, 0.71, 0.26, 0.12)
+		legs(0.84, 0.09, 0.15, 0.32, 0.5)
+		for _, head in { { 0.58, 0.2 }, { 0.82, 0.3 }, { 0.84, 0.56 } } do
+			limb("body", 0.52, 0.58, head[1], head[2], 0.08)
+			add("body", head[1], head[2], 0.18, 0.12)
+			eye(head[1] + 0.03, head[2] - 0.01, 0.05)
+		end
+	else -- giant
+		limb("body", 0.46, 0.68, 0.08, 0.88, 0.13)
+		for i, y in { 0.42, 0.55, 0.68 } do
+			add("dark", 0.32 - (i - 2) * 0.01, y, 0.1, 0.1, 45, 0.15)
+		end
+		add("body", 0.5, 0.58, 0.36, 0.44)
+		add("light", 0.56, 0.62, 0.18, 0.3)
+		legs(0.86, 0.14, 0.2, 0.42, 0.6)
+		limb("body", 0.62, 0.55, 0.74, 0.62, 0.05)
+		limb("body", 0.54, 0.42, 0.66, 0.26, 0.15)
+		add("dark", 0.66, 0.1, 0.05, 0.12, -20, 0.3)
+		add("body", 0.73, 0.22, 0.28, 0.18)
+		eye(0.77, 0.18, 0.06)
+	end
+	return list
+end
+
+-- parent の中に、正方形の絵を描く。持っていないドラゴンは、真っ黒な影にする
+local function drawDragon(parent: GuiObject, dragon, known: boolean, z: number)
+	local canvas = Instance.new("Frame")
+	canvas.Name = "Picture"
+	canvas.AnchorPoint = Vector2.new(0.5, 0.5)
+	canvas.Position = UDim2.fromScale(0.5, 0.5)
+	canvas.Size = UDim2.fromScale(1, 1)
+	canvas.BackgroundTransparency = 1
+	canvas.ZIndex = z
+	canvas.Parent = parent
+	local aspect = Instance.new("UIAspectRatioConstraint")
+	aspect.AspectRatio = 1
+	aspect.Parent = canvas
+	local c = dragon.color
+	local tones = {
+		body = c,
+		dark = c:Lerp(Color3.new(0, 0, 0), 0.35),
+		light = c:Lerp(Color3.new(1, 1, 1), 0.45),
+		eye = Color3.new(1, 1, 1),
+		pupil = Color3.fromRGB(20, 20, 30),
+	}
+	for _, p in dragonPieces(dragon.shape) do
+		if not known and (p.tone == "eye" or p.tone == "pupil") then
+			continue
+		end
+		local f = Instance.new("Frame")
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromScale(p.x, p.y)
+		f.Size = UDim2.fromScale(p.w, p.h)
+		f.Rotation = p.rot
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = if known then tones[p.tone] else SHADOW
+		f.ZIndex = z + 1
+		f.Parent = canvas
+		if p.round > 0 then
+			local r = Instance.new("UICorner")
+			r.CornerRadius = UDim.new(p.round, 0)
+			r.Parent = f
+		end
+	end
+	return canvas
+end
+
+-- まだ出会っていないドラゴンが、どこのたまごから生まれるか
+local function hatchHint(rarity: number): string
+	for z, odds in Config.HatchOdds do
+		if (odds[rarity] or 0) > 0 then
+			local zone = Config.Zones[z]
+			return if z == 1
+				then "どのたまごからでも 生まれるよ"
+				else zone.name .. "より遠くの たまごから 生まれるよ"
+		end
+	end
+	return ""
+end
+
+local bookSelected: string? = nil
+
+local function renderBook()
+	local owned = collection()
+	local found = 0
+	for _, dragon in Config.HatchDragons do
+		if (owned[dragon.id] or 0) > 0 then
+			found += 1
+		end
+	end
+	shopTitle.Text = string.format("📖 ドラゴン図鑑　%d / %d", found, #Config.HatchDragons)
+
+	-- 上：えらんだドラゴンのくわしい説明
+	local detail = Instance.new("Frame")
+	detail.LayoutOrder = 0
+	detail.Size = UDim2.new(1, -8, 0, 92)
+	detail.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+	detail.ZIndex = 6
+	detail.Parent = list
+	corner(detail, 10)
+	local picBox = Instance.new("Frame")
+	picBox.Position = UDim2.new(0, 6, 0, 6)
+	picBox.Size = UDim2.new(0, 80, 0, 80)
+	picBox.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+	picBox.ZIndex = 7
+	picBox.Parent = detail
+	corner(picBox, 8)
+	local function line(y: number, h: number, font: Enum.Font?): TextLabel
+		return text(detail, {
+			Position = UDim2.new(0, 96, 0, y),
+			Size = UDim2.new(1, -104, 0, h),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Font = font or Enum.Font.GothamBold,
+			ZIndex = 7,
+		})
+	end
+	local nameLine = line(8, 26)
+	local rarityLine = line(36, 18)
+	local descLine = line(58, 26, Enum.Font.Gotham)
+	descLine.TextColor3 = Color3.fromRGB(200, 200, 220)
+
+	local function showDetail(dragon)
+		local old = picBox:FindFirstChild("Picture")
+		if old then
+			old:Destroy()
+		end
+		if not dragon then
+			nameLine.Text = "カードをタップすると くわしく見られる"
+			nameLine.TextColor3 = Color3.new(1, 1, 1)
+			rarityLine.Text = "黒い影は、まだ仲間にしていないドラゴン"
+			rarityLine.TextColor3 = Color3.fromRGB(200, 200, 220)
+			descLine.Text = "たまごをかえして 100種類 ぜんぶ集めよう！"
+			return
+		end
+		local count = owned[dragon.id] or 0
+		local known = count > 0
+		local rarity = Config.Rarities[dragon.rarity]
+		drawDragon(picBox, dragon, known, 8)
+		local number = string.format("No.%03d　", tonumber(string.sub(dragon.id, 2)) or 0)
+		rarityLine.Text = string.rep("★", dragon.rarity) .. " " .. rarity.name
+		rarityLine.TextColor3 = rarity.color
+		if known then
+			nameLine.Text = number .. dragon.name .. string.format("　×%d", count)
+			nameLine.TextColor3 = dragon.color
+			descLine.Text = dragonDesc(dragon)
+		else
+			nameLine.Text = number .. "？？？"
+			nameLine.TextColor3 = Color3.fromRGB(150, 150, 165)
+			descLine.Text = hatchHint(dragon.rarity)
+		end
+	end
+	showDetail(if bookSelected then Config.findDragon(bookSelected) else nil)
+
+	-- 下：100種類のカード（番号の順）
+	local grid = Instance.new("Frame")
+	grid.LayoutOrder = 1
+	grid.Size = UDim2.new(1, -8, 0, 0)
+	grid.AutomaticSize = Enum.AutomaticSize.Y
+	grid.BackgroundTransparency = 1
+	grid.ZIndex = 6
+	grid.Parent = list
+	local layout = Instance.new("UIGridLayout")
+	layout.CellSize = UDim2.new(0.25, -6, 0, 112)
+	layout.CellPadding = UDim2.new(0, 6, 0, 6)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = grid
+
+	for i, dragon in Config.HatchDragons do
+		local known = (owned[dragon.id] or 0) > 0
+		local rarity = Config.Rarities[dragon.rarity]
+		local card = Instance.new("TextButton")
+		card.LayoutOrder = i
+		card.Text = ""
+		card.AutoButtonColor = true
+		card.BackgroundColor3 = if known then Color3.fromRGB(55, 55, 78) else Color3.fromRGB(36, 36, 48)
+		card.ZIndex = 7
+		card.Parent = grid
+		corner(card, 8)
+		local stroke = Instance.new("UIStroke")
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Thickness = if known then 2 else 1
+		stroke.Color = if known then rarity.color else Color3.fromRGB(70, 70, 85)
+		stroke.Parent = card
+		text(card, {
+			Position = UDim2.new(0, 5, 0, 3),
+			Size = UDim2.new(1, -10, 0, 12),
+			Text = string.format("No.%03d", i),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(170, 170, 190),
+			Font = Enum.Font.Gotham,
+			ZIndex = 8,
+		})
+		local picArea = Instance.new("Frame")
+		picArea.Position = UDim2.new(0, 4, 0, 16)
+		picArea.Size = UDim2.new(1, -8, 1, -50)
+		picArea.BackgroundTransparency = 1
+		picArea.ZIndex = 8
+		picArea.Parent = card
+		drawDragon(picArea, dragon, known, 8)
+		text(card, {
+			Position = UDim2.new(0, 3, 1, -33),
+			Size = UDim2.new(1, -6, 0, 17),
+			Text = if known then dragon.name else "？？？",
+			TextColor3 = if known then Color3.new(1, 1, 1) else Color3.fromRGB(130, 130, 145),
+			ZIndex = 8,
+		})
+		text(card, {
+			Position = UDim2.new(0, 3, 1, -15),
+			Size = UDim2.new(1, -6, 0, 12),
+			Text = string.rep("★", dragon.rarity),
+			TextColor3 = if known then rarity.color else Color3.fromRGB(95, 95, 110),
+			ZIndex = 8,
+		})
+		card.Activated:Connect(function()
+			bookSelected = dragon.id
+			showDetail(dragon)
+		end)
+	end
+end
+
 render = function()
 	for _, c in list:GetChildren() do
 		if c:IsA("Frame") then
@@ -421,6 +719,7 @@ render = function()
 	end
 	tabs.items.BackgroundColor3 = if currentTab == "items" then BLUE else GRAY
 	tabs.dragons.BackgroundColor3 = if currentTab == "dragons" then BLUE else GRAY
+	tabs.book.BackgroundColor3 = if currentTab == "book" then BLUE else GRAY
 	tabs.cage.BackgroundColor3 = if currentTab == "cage" then BLUE else GRAY
 	table.clear(cageRows)
 	shopTitle.Text = string.format("🛒 ショップ　🪙 %d", coinValue.Value)
@@ -492,6 +791,8 @@ render = function()
 		for i, dragon in Config.Dragons do
 			dragonRow(if dragon.id == equipped then 0 else 1000 + i, dragon)
 		end
+	elseif currentTab == "book" then
+		renderBook()
 	else
 		-- 檻
 		local eggs = incubator()
@@ -569,6 +870,10 @@ tabs.dragons.Activated:Connect(function()
 	currentTab = "dragons"
 	render()
 end)
+tabs.book.Activated:Connect(function()
+	currentTab = "book"
+	render()
+end)
 tabs.cage.Activated:Connect(function()
 	currentTab = "cage"
 	render()
@@ -616,20 +921,23 @@ local function sideButton(label: string, y: number, color: Color3, onClick: () -
 	return b
 end
 
-sideButton("🛒 ショップ", -75, GREEN, function()
+sideButton("🛒 ショップ", -100, GREEN, function()
 	if shop.Visible then
 		shop.Visible = false
 	else
 		openShop("items")
 	end
 end)
-sideButton("🐉 仲間", -25, Color3.fromRGB(140, 70, 200), function()
+sideButton("🐉 仲間", -50, Color3.fromRGB(140, 70, 200), function()
 	openShop("dragons")
 end)
-local cageButton = sideButton("🥚 檻", 25, Color3.fromRGB(220, 140, 40), function()
+sideButton("📖 図鑑", 0, Color3.fromRGB(40, 150, 160), function()
+	openShop("book")
+end)
+local cageButton = sideButton("🥚 檻", 50, Color3.fromRGB(220, 140, 40), function()
 	openShop("cage")
 end)
-sideButton("🏠 ベースへ", 75, BLUE, function()
+sideButton("🏠 ベースへ", 100, BLUE, function()
 	goHome:FireServer()
 end)
 
