@@ -3,21 +3,78 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Shared": { "$path": "src/shared" }
+      "Shared": {
+        "$path": "src/shared"
+      }
     },
     "ServerScriptService": {
-      "Server": { "$path": "src/server" }
+      "Server": {
+        "$path": "src/server"
+      }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {
-        "Client": { "$path": "src/client" }
+        "Client": {
+          "$path": "src/client"
+        }
       }
     },
     "Lighting": {
       "$properties": {
         "ClockTime": 13.5,
         "Brightness": 2.5,
-        "GlobalShadows": true
+        "GlobalShadows": true,
+        "Technology": "Future",
+        "EnvironmentDiffuseScale": 1,
+        "EnvironmentSpecularScale": 1,
+        "ShadowSoftness": 0.25,
+        "OutdoorAmbient": [
+          0.5,
+          0.5,
+          0.55
+        ]
+      },
+      "Atmosphere": {
+        "$className": "Atmosphere",
+        "$properties": {
+          "Density": 0.28,
+          "Offset": 0.2,
+          "Haze": 1.2,
+          "Glare": 0.3,
+          "Color": [
+            0.78,
+            0.83,
+            0.9
+          ],
+          "Decay": [
+            0.42,
+            0.48,
+            0.6
+          ]
+        }
+      },
+      "Bloom": {
+        "$className": "BloomEffect",
+        "$properties": {
+          "Intensity": 0.6,
+          "Size": 28,
+          "Threshold": 1.6
+        }
+      },
+      "SunRays": {
+        "$className": "SunRaysEffect",
+        "$properties": {
+          "Intensity": 0.06,
+          "Spread": 0.7
+        }
+      },
+      "ColorCorrection": {
+        "$className": "ColorCorrectionEffect",
+        "$properties": {
+          "Brightness": 0.02,
+          "Contrast": 0.08,
+          "Saturation": 0.12
+        }
       }
     },
     "Workspace": {

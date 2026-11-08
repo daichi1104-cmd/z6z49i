@@ -1,4 +1,5 @@
 -- ドラゴンの仲間：選んだドラゴンの模型を作り、プレイヤーの後ろをふわふわついて来させる
+-- 模型は Rig（骨と部品）で組み立て、つばさ・しっぽ・首・あごを動かす
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -7,16 +8,29 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local Enemies = require(script.Parent:WaitForChild("Enemies"))
+local Rig = require(script.Parent:WaitForChild("Rig"))
 
 local Dragons = {}
+
+type Look = {
+	mouths: { Vector3 }, -- こうげきが出る口の位置（模型の中から見た位置）
+	top: number, -- 名前を出す高さ
+	flapSpeed: number, -- 羽ばたきの速さ
+	flapAmp: number, -- 羽ばたきの大きさ（度）
+}
 
 local folder: Folder
 type Follower = {
 	model: Model,
+	root: BasePart,
+	joints: { [string]: Rig.Joint },
+	look: Look,
 	cf: CFrame,
 	scale: number,
 	dragon: any,
 	lastAttack: number,
+	jawUntil: number,
+	phase: number,
 	target: any?,
 }
 local followers: { [Player]: Follower } = {}
@@ -26,237 +40,337 @@ function Dragons.find(id: string?)
 	return Config.findDragon(id)
 end
 
--- 模型づくり（-Z 方向が前、原点が体の中心）
-local function makeBuilder(model: Model, scale: number)
-	return function(
-		shape: Enum.PartType,
-		size: Vector3,
-		offset: Vector3,
-		color: Color3,
-		rot: Vector3?,
-		material: Enum.Material?
-	)
-		local p = Instance.new("Part")
-		p.Shape = shape
-		p.Size = size * scale
-		p.Anchored = true
-		p.CanCollide = false
-		p.CanQuery = false
-		p.CanTouch = false
-		p.CastShadow = false
-		p.Color = color
-		p.Material = material or Enum.Material.SmoothPlastic
-		local r = rot or Vector3.zero
-		p.CFrame = CFrame.new(offset * scale) * CFrame.Angles(math.rad(r.X), math.rad(r.Y), math.rad(r.Z))
-		p.Parent = model
-		return p
-	end
-end
+local A = require(script.Parent:WaitForChild("Anatomy"))
+local WHITE, BLACK, CREAM, IVORY, MOUTH, AMBER = A.WHITE, A.BLACK, A.CREAM, A.IVORY, A.MOUTH, A.AMBER
+local SCALES, ROCK, METAL, GLOW = A.SCALES, A.ROCK, A.METAL, A.GLOW
+local shade, tint, v = A.shade, A.tint, A.v
+local eye, chain, tail, spines, leg, wing = A.eye, A.chain, A.tail, A.spines, A.leg, A.wing
 
-local BALL = Enum.PartType.Ball
-local BLOCK = Enum.PartType.Block
-local WHITE = Color3.new(1, 1, 1)
-local BLACK = Color3.fromRGB(20, 20, 20)
+-- ドラゴンの頭
+type HeadOpts = {
+	bone: string, -- 頭の骨
+	jaw: string, -- あごの骨
+	pos: Vector3, -- 頭の中心
+	size: number,
+	color: Color3,
+	belly: Color3,
+	horn: Color3,
+	iris: Color3,
+	glowEyes: boolean?,
+	mat: Enum.Material?,
+}
 
-local function eyes(add, headPos: Vector3, headSize: number)
+-- ドラゴンの頭（頭・鼻先・まゆ・目・鼻のあな・角・きば・下あご）。口の位置を返す
+local function dragonHead(r, o: HeadOpts): Vector3
+	local L, p, c = o.size, o.pos, o.color
+	r:use(o.bone)
+	r:ell(v(0.62, 0.52, 0.66) * L, p, c, nil, o.mat)
+	r:ell(v(0.44, 0.3, 0.74) * L, p + v(0, -0.05, -0.46) * L, c, v(-6, 0, 0), o.mat)
+	-- 口の中（あごが開くと見える）
+	r:ell(v(0.36, 0.12, 0.6) * L, p + v(0, -0.21, -0.42) * L, MOUTH)
 	for _, s in { -1, 1 } do
-		add(
-			BALL,
-			Vector3.one * headSize * 0.3,
-			headPos + Vector3.new(s * headSize * 0.25, headSize * 0.15, -headSize * 0.38),
-			WHITE
-		)
-		add(
-			BALL,
-			Vector3.one * headSize * 0.15,
-			headPos + Vector3.new(s * headSize * 0.25, headSize * 0.15, -headSize * 0.5),
-			BLACK
-		)
-	end
-end
-
-local function wings(add, y: number, span: number, color: Color3)
-	for _, s in { -1, 1 } do
-		add(
-			BLOCK,
-			Vector3.new(span, 0.2, span * 0.6),
-			Vector3.new(s * (span / 2 + 0.8), y, 0.3),
-			color,
-			Vector3.new(0, 0, s * 20)
-		)
-	end
-end
-
-local function head(add, pos: Vector3, size: number, color: Color3, horn: Color3)
-	add(BALL, Vector3.one * size, pos, color)
-	add(BLOCK, Vector3.new(size * 0.6, size * 0.4, size * 0.6), pos + Vector3.new(0, -size * 0.15, -size * 0.45), color)
-	eyes(add, pos, size)
-	for _, s in { -1, 1 } do
-		add(
-			BLOCK,
-			Vector3.new(0.25, size * 0.5, 0.25),
-			pos + Vector3.new(s * size * 0.25, size * 0.5, size * 0.1),
-			horn,
-			Vector3.new(-25, 0, 0)
-		)
-	end
-end
-
-local BUILDERS = {}
-
-BUILDERS.small = function(add, c: Color3)
-	add(BALL, Vector3.one * 2.4, Vector3.zero, c)
-	add(BALL, Vector3.new(1.6, 1.6, 1.6), Vector3.new(0, -0.1, -0.5), Color3.fromRGB(255, 245, 210))
-	head(add, Vector3.new(0, 1.4, -1), 1.8, c, WHITE)
-	wings(add, 0.6, 1.8, c:Lerp(WHITE, 0.4))
-	add(BLOCK, Vector3.new(0.5, 0.5, 2), Vector3.new(0, -0.4, 1.8), c, Vector3.new(20, 0, 0))
-end
-
-BUILDERS.winged = function(add, c: Color3)
-	add(BLOCK, Vector3.new(2.6, 2.4, 4), Vector3.zero, c)
-	head(add, Vector3.new(0, 1.6, -2.4), 2, c, Color3.fromRGB(80, 60, 200))
-	wings(add, 0.8, 4.5, Color3.fromRGB(255, 255, 160))
-	add(BLOCK, Vector3.new(0.6, 0.6, 3.5), Vector3.new(0, 0, 3.4), c, Vector3.new(10, 0, 0))
-	-- いなずま模様
-	add(
-		BLOCK,
-		Vector3.new(2.7, 0.3, 0.6),
-		Vector3.new(0, 0.6, -0.5),
-		Color3.fromRGB(80, 200, 255),
-		Vector3.new(0, 25, 0),
-		Enum.Material.Neon
-	)
-	add(
-		BLOCK,
-		Vector3.new(2.7, 0.3, 0.6),
-		Vector3.new(0, 0.6, 0.8),
-		Color3.fromRGB(80, 200, 255),
-		Vector3.new(0, -25, 0),
-		Enum.Material.Neon
-	)
-end
-
-BUILDERS.magma = function(add, c: Color3)
-	local rock = Color3.fromRGB(70, 40, 35)
-	add(BLOCK, Vector3.new(4, 3.4, 5.5), Vector3.zero, c, nil, Enum.Material.Basalt)
-	head(add, Vector3.new(0, 1.2, -3.4), 2.6, c, rock)
-	for _, x in { -1.6, 1.6 } do
-		for _, z in { -1.8, 1.8 } do
-			add(BLOCK, Vector3.new(1.2, 2.2, 1.2), Vector3.new(x, -2.2, z), rock, nil, Enum.Material.Basalt)
+		-- まゆの出っぱり
+		r:ell(v(0.22, 0.12, 0.32) * L, p + v(s * 0.2, 0.18, -0.2) * L, shade(c, 0.25), v(0, s * -15, s * -12), o.mat)
+		eye(r, p + v(s * 0.23, 0.07, -0.25) * L, 0.17 * L, o.iris, o.glowEyes)
+		r:ball(0.07 * L, p + v(s * 0.09, 0.06, -0.82) * L, BLACK)
+		-- 後ろへそり返る角（2本つなぎ）
+		local h0 = p + v(s * 0.17, 0.22, 0.1) * L
+		local h1 = p + v(s * 0.27, 0.42, 0.42) * L
+		local h2 = p + v(s * 0.31, 0.47, 0.82) * L
+		r:limb(h0, h1, 0.14 * L, o.horn)
+		r:ball(0.12 * L, h1, o.horn)
+		r:limb(h1, h2, 0.09 * L, o.horn)
+		r:ball(0.08 * L, h2, o.horn)
+		-- ほおのとげ
+		r:spike(p + v(s * 0.28, -0.06, 0.12) * L, p + v(s * 0.46, -0.04, 0.42) * L, 0.12 * L, o.horn)
+		-- 上のきば
+		for i = 0, 2 do
+			local z = -0.52 - i * 0.12
+			r:spike(p + v(s * 0.15, -0.18, z) * L, p + v(s * 0.14, -0.3, z) * L, 0.06 * L, IVORY)
 		end
 	end
-	-- 背中の岩とマグマのすじ
-	for i = -1, 1 do
-		add(
-			BLOCK,
-			Vector3.new(1.4, 1.4, 1.4),
-			Vector3.new(0, 2, i * 1.6),
-			rock,
-			Vector3.new(45, 0, 45),
-			Enum.Material.Basalt
-		)
-		add(
-			BLOCK,
-			Vector3.new(4.1, 0.3, 0.4),
-			Vector3.new(0, 0.5, i * 1.7),
-			Color3.fromRGB(255, 140, 30),
-			nil,
-			Enum.Material.Neon
-		)
-	end
-	add(BLOCK, Vector3.new(1, 1, 3.5), Vector3.new(0, -0.6, 4), c, Vector3.new(15, 0, 0), Enum.Material.Basalt)
-end
-
-BUILDERS.triple = function(add, c: Color3)
-	add(BLOCK, Vector3.new(3.6, 3, 4.6), Vector3.zero, c, nil, Enum.Material.Metal)
-	wings(add, 1.2, 5, c:Lerp(Color3.fromRGB(255, 120, 40), 0.3))
-	-- 三つの首と頭
-	for i, x in { -1.6, 0, 1.6 } do
-		local tilt = (i - 2) * -20
-		add(
-			BLOCK,
-			Vector3.new(0.8, 3, 0.8),
-			Vector3.new(x * 1.2, 2.4, -2),
-			c,
-			Vector3.new(-30, 0, tilt),
-			Enum.Material.Metal
-		)
-		head(add, Vector3.new(x * 1.8, 3.8, -2.8), 1.6, c, WHITE)
-	end
-	for _, x in { -0.8, 0.8 } do
-		add(
-			BLOCK,
-			Vector3.new(0.6, 0.6, 4),
-			Vector3.new(x, -0.3, 4),
-			c,
-			Vector3.new(10, x * 20, 0),
-			Enum.Material.Metal
-		)
-	end
-end
-
-BUILDERS.giant = function(add, c: Color3)
-	local belly = c:Lerp(Color3.fromRGB(230, 220, 170), 0.5)
-	add(BLOCK, Vector3.new(4.4, 6, 4), Vector3.new(0, 0.5, 0), c, Vector3.new(-12, 0, 0), Enum.Material.Slate)
-	add(BLOCK, Vector3.new(3, 4.5, 1), Vector3.new(0, 0.3, -1.8), belly, Vector3.new(-12, 0, 0))
-	head(add, Vector3.new(0, 4.6, -1.8), 2.8, c, Color3.fromRGB(230, 230, 210))
+	-- 下あご（骨ごと動いて口が開く）
+	r:bone(o.jaw, o.bone, p + v(0, -0.18, -0.02) * L)
+	r:ell(v(0.4, 0.16, 0.72) * L, p + v(0, -0.3, -0.4) * L, o.belly, nil, o.mat)
 	for _, s in { -1, 1 } do
-		add(BLOCK, Vector3.new(1.8, 3.4, 2), Vector3.new(s * 1.8, -3.4, 0), c, nil, Enum.Material.Slate)
-		add(BLOCK, Vector3.new(0.9, 2.4, 0.9), Vector3.new(s * 2.6, 1.2, -1.4), c, Vector3.new(-50, 0, 0))
+		for i = 0, 1 do
+			local z = -0.58 - i * 0.14
+			r:spike(p + v(s * 0.13, -0.26, z) * L, p + v(s * 0.13, -0.16, z) * L, 0.05 * L, IVORY)
+		end
 	end
-	-- 背中のとげ
-	for i = 0, 3 do
-		add(
-			BLOCK,
-			Vector3.new(0.5, 1.6 - i * 0.2, 1.4),
-			Vector3.new(0, 4 - i * 1.5, 1.8 + i * 0.6),
-			Color3.fromRGB(180, 170, 140),
-			Vector3.new(30, 0, 0)
-		)
-	end
-	add(BLOCK, Vector3.new(1.6, 1.6, 6), Vector3.new(0, -2.4, 4.4), c, Vector3.new(20, 0, 0), Enum.Material.Slate)
+	r:use(o.bone)
+	return p + v(0, -0.22, -0.88) * L
 end
 
-BUILDERS.phoenix = function(add, c: Color3)
+--------------------------------------------------------------------------------
+-- 体の形ごとの作り方
+--------------------------------------------------------------------------------
+
+local BUILDERS: { [string]: (any, Color3, number) -> Look } = {}
+
+-- 子どものドラゴン：頭が大きく、ずんぐりした体
+BUILDERS.small = function(r, c, rarity)
+	local belly = tint(c, 0.6)
+	r:ell(v(2.1, 1.9, 2.6), v(0, 0, 0), c, nil, SCALES)
+	r:ell(v(1.5, 1.5, 1.9), v(0, -0.2, -0.45), belly)
+	chain(r, { v(0, 0.4, -0.9), v(0, 0.9, -1.25) }, 1.1, 1, c, SCALES)
+	r:bone("Head", "Root", v(0, 0.95, -1.2))
+	local mouth = dragonHead(r, {
+		bone = "Head",
+		jaw = "Jaw",
+		pos = v(0, 1.35, -1.55),
+		size = 1.9,
+		color = c,
+		belly = belly,
+		horn = IVORY,
+		iris = AMBER,
+		glowEyes = rarity >= 4,
+		mat = SCALES,
+	})
+	r:use("Root")
+	for _, s in { -1, 1 } do
+		leg(r, v(s * 0.6, -0.4, -0.6), v(s * 0.7, -0.85, -0.85), v(s * 0.7, -1.15, -0.7), 0.55, c, IVORY, SCALES)
+		leg(r, v(s * 0.65, -0.35, 0.6), v(s * 0.75, -0.8, 0.3), v(s * 0.75, -1.15, 0.55), 0.65, c, IVORY, SCALES)
+		wing(r, s, if s < 0 then "WingL" else "WingR", {
+			shoulder = v(s * 0.55, 0.7, -0.3),
+			span = 2.3,
+			chord = 1.4,
+			bone = c,
+			skin = tint(c, 0.35),
+			mat = SCALES,
+		})
+	end
+	spines(r, v(0, 0.95, -0.4), v(0, 0.85, 0.8), 3, 0.35, 0.25, IVORY)
+	tail(r, "Tail", v(0, -0.15, 1.1), v(0, -0.25, 1), 4, 2.6, 0.85, c, SCALES, IVORY)
+	return { mouths = { mouth }, top = 3, flapSpeed = 9, flapAmp = 32 }
+end
+
+-- つばさの大きい、すらりとしたドラゴン。背中にいなずまの光
+BUILDERS.winged = function(r, c, rarity)
+	local belly = tint(c, 0.55)
+	local bolt = Color3.fromRGB(110, 220, 255)
+	r:ell(v(1.7, 1.6, 3.6), v(0, 0, 0), c, nil, SCALES)
+	r:ell(v(1.2, 1.1, 2.8), v(0, -0.32, -0.2), belly)
+	chain(r, { v(0, 0.3, -1.4), v(0, 0.9, -2.1), v(0, 1.55, -2.55), v(0, 2, -2.8) }, 1, 0.7, c, SCALES)
+	r:bone("Head", "Root", v(0, 2, -2.8))
+	local mouth = dragonHead(r, {
+		bone = "Head",
+		jaw = "Jaw",
+		pos = v(0, 2.25, -3.3),
+		size = 1.7,
+		color = c,
+		belly = belly,
+		horn = shade(c, 0.5),
+		iris = bolt,
+		glowEyes = true,
+		mat = SCALES,
+	})
+	r:use("Root")
+	for _, s in { -1, 1 } do
+		leg(r, v(s * 0.55, -0.3, 0.8), v(s * 0.65, -0.85, 0.4), v(s * 0.65, -1.25, 0.75), 0.6, c, IVORY, SCALES)
+		wing(r, s, if s < 0 then "WingL" else "WingR", {
+			shoulder = v(s * 0.5, 0.55, -0.7),
+			span = 5,
+			chord = 2.8,
+			bone = shade(c, 0.2),
+			skin = c:Lerp(Color3.fromRGB(255, 250, 170), 0.45),
+			mat = SCALES,
+		})
+	end
+	-- 背中のいなずま模様（光る）
+	for i = 0, 3 do
+		local s = if i % 2 == 0 then 1 else -1
+		r:ell(v(0.18, 0.14, 0.95), v(s * 0.18, 0.78, -1.1 + i * 0.75), bolt, v(-4, s * 35, 0), GLOW)
+	end
+	local tip = tail(r, "Tail", v(0, 0, 1.7), v(0, -0.15, 1), 5, 4.8, 0.75, c, SCALES, shade(c, 0.4))
+	-- しっぽの先のスペード
+	r:tri(tip + v(0, 0, -0.2), tip + v(-0.55, 0, 0.35), tip + v(0, 0, 1.1), bolt, GLOW, 0.12)
+	r:tri(tip + v(0, 0, -0.2), tip + v(0.55, 0, 0.35), tip + v(0, 0, 1.1), bolt, GLOW, 0.12)
+	r:use("Root")
+	return { mouths = { mouth }, top = 3.8, flapSpeed = 6, flapAmp = 30 }
+end
+
+-- 岩のドラゴン：重い体に、マグマの光るすじ。つばさはない
+BUILDERS.magma = function(r, c, rarity)
+	local rock = Color3.fromRGB(60, 40, 36)
+	local lava = Color3.fromRGB(255, 130, 30)
+	r:ell(v(3.4, 2.7, 5), v(0, 0, 0), c, nil, ROCK)
+	r:ell(v(2.6, 1.8, 3.8), v(0, -0.55, -0.3), shade(c, 0.3), nil, ROCK)
+	-- マグマのすじ
+	for i = -1, 1 do
+		r:ell(v(3.2, 0.14, 0.3), v(0, 0.55, i * 1.3), lava, v(0, i * 8, 0), GLOW)
+	end
+	-- 背中の岩のかたまり
+	for i = -2, 2 do
+		local s = if i % 2 == 0 then 1 else -1
+		r:block(v(1, 1, 1) * (1.15 - math.abs(i) * 0.12), v(s * 0.45, 1.25, i * 1), rock, v(45, i * 20, 45), ROCK)
+	end
+	chain(r, { v(0, 0.5, -1.9), v(0, 0.9, -2.6) }, 1.8, 1.6, c, ROCK)
+	r:bone("Head", "Root", v(0, 0.95, -2.7))
+	local mouth = dragonHead(r, {
+		bone = "Head",
+		jaw = "Jaw",
+		pos = v(0, 1.1, -3.4),
+		size = 2.3,
+		color = c,
+		belly = shade(c, 0.3),
+		horn = rock,
+		iris = lava,
+		glowEyes = true,
+		mat = ROCK,
+	})
+	r:use("Root")
+	for _, s in { -1, 1 } do
+		for _, z in { -1.5, 1.5 } do
+			leg(r, v(s * 1.3, -0.6, z), v(s * 1.6, -1.6, z - 0.4), v(s * 1.6, -2.35, z + 0.05), 1.15, c, rock, ROCK)
+		end
+	end
+	tail(r, "Tail", v(0, -0.2, 2.3), v(0, -0.2, 1), 4, 3.8, 1.4, c, ROCK, rock)
+	local light = Instance.new("PointLight")
+	light.Color = lava
+	light.Range = 10
+	light.Brightness = 1.5
+	light.Parent = r.root
+	return { mouths = { mouth }, top = 3.6, flapSpeed = 0, flapAmp = 0 }
+end
+
+-- 三つの首のドラゴン：金属のうろこ、しっぽも2本
+BUILDERS.triple = function(r, c, rarity)
+	local belly = tint(c, 0.45)
+	r:ell(v(2.8, 2.4, 3.8), v(0, 0, 0), c, nil, METAL)
+	r:ell(v(2, 1.7, 2.8), v(0, -0.4, -0.3), belly, nil, METAL)
+	local mouths = {}
+	for i, x in { -1, 0, 1 } do
+		local top = v(x * 1.8, 3 - math.abs(x) * 0.2, -2.3)
+		chain(r, { v(x * 0.6, 0.6, -1.4), v(x * 1.3, 1.9, -1.95), top }, 0.85, 0.7, c, METAL)
+		local headName = "Head" .. i
+		r:bone(headName, "Root", top)
+		table.insert(
+			mouths,
+			dragonHead(r, {
+				bone = headName,
+				jaw = "Jaw" .. i,
+				pos = top + v(0, 0.25, -0.5),
+				size = 1.45,
+				color = c,
+				belly = belly,
+				horn = IVORY,
+				iris = Color3.fromRGB(255, 80, 50),
+				glowEyes = true,
+				mat = METAL,
+			})
+		)
+		r:use("Root")
+	end
+	for _, s in { -1, 1 } do
+		leg(r, v(s * 0.8, -0.5, 0.9), v(s * 0.95, -1.15, 0.4), v(s * 0.95, -1.7, 0.85), 0.8, c, IVORY, METAL)
+		wing(r, s, if s < 0 then "WingL" else "WingR", {
+			shoulder = v(s * 0.8, 0.8, -0.4),
+			span = 4.6,
+			chord = 2.7,
+			bone = shade(c, 0.25),
+			skin = c:Lerp(Color3.fromRGB(255, 130, 50), 0.35),
+			mat = METAL,
+		})
+	end
+	tail(r, "TailA", v(-0.5, -0.2, 1.7), v(-0.25, -0.15, 1), 4, 3.4, 0.7, c, METAL, IVORY)
+	tail(r, "TailB", v(0.5, -0.2, 1.7), v(0.25, -0.15, 1), 4, 3.4, 0.7, c, METAL, IVORY)
+	return { mouths = mouths, top = 4.8, flapSpeed = 5, flapAmp = 28 }
+end
+
+-- 立って歩く大きなドラゴン：太い足と短い腕、背中に一列のとげ
+BUILDERS.giant = function(r, c, rarity)
+	local belly = tint(c, 0.5)
+	local plate = tint(c, 0.7)
+	r:ell(v(3.3, 5.2, 3.2), v(0, 0.6, 0), c, v(-15, 0, 0), SCALES)
+	r:ell(v(2.3, 4.2, 1.3), v(0, 0.35, -1.25), belly, v(-15, 0, 0))
+	chain(r, { v(0, 2.7, -0.6), v(0, 3.6, -1.15), v(0, 4.15, -1.6) }, 2.1, 1.8, c, SCALES)
+	r:bone("Head", "Root", v(0, 4.15, -1.6))
+	local mouth = dragonHead(r, {
+		bone = "Head",
+		jaw = "Jaw",
+		pos = v(0, 4.5, -2.25),
+		size = 2.5,
+		color = c,
+		belly = belly,
+		horn = plate,
+		iris = AMBER,
+		glowEyes = rarity >= 4,
+		mat = SCALES,
+	})
+	r:use("Root")
+	for _, s in { -1, 1 } do
+		-- 短い腕
+		r:seg(v(s * 1.4, 2, -1.1), v(s * 1.75, 1.05, -1.75), 0.75, 0.7, c, SCALES)
+		r:seg(v(s * 1.75, 1.05, -1.75), v(s * 1.5, 0.6, -2.45), 0.55, 0.5, c, SCALES)
+		for _, x in { -1, 0, 1 } do
+			local hand = v(s * 1.5 + x * 0.15, 0.55, -2.5)
+			r:spike(hand, hand + v(0, -0.15, -0.4), 0.14, IVORY)
+		end
+		-- 太い足
+		leg(r, v(s * 1.3, -1.3, 0.2), v(s * 1.55, -2.7, -0.75), v(s * 1.5, -4, 0.15), 1.8, c, IVORY, SCALES)
+	end
+	spines(r, v(0, 3.3, 0.35), v(0, -0.6, 2), 6, 1.3, 0.7, plate)
+	tail(r, "Tail", v(0, -1.4, 1.5), v(0, -0.35, 1), 5, 6, 1.8, c, SCALES, plate)
+	return { mouths = { mouth }, top = 6.2, flapSpeed = 0, flapAmp = 0 }
+end
+
+-- 火の鳥：羽根を重ねたつばさと、扇のように広がる長い尾羽
+BUILDERS.phoenix = function(r, c, rarity)
 	local orange = Color3.fromRGB(255, 140, 30)
 	local yellow = Color3.fromRGB(255, 220, 70)
-	add(BALL, Vector3.one * 2.4, Vector3.zero, c)
-	add(BALL, Vector3.one * 1.7, Vector3.new(0, 0.1, -0.6), yellow)
-	-- 頭・くちばし・とさか
-	local headPos = Vector3.new(0, 1.7, -1.5)
-	add(BALL, Vector3.one * 1.5, headPos, c)
-	eyes(add, headPos, 1.5)
-	add(BLOCK, Vector3.new(0.4, 0.35, 0.8), headPos + Vector3.new(0, -0.15, -0.9), yellow, Vector3.new(15, 0, 0))
-	for i, tilt in { -20, 0, 20 } do
-		add(
-			BLOCK,
-			Vector3.new(0.2, 1.4 - math.abs(tilt) / 40, 0.3),
-			headPos + Vector3.new(tilt / 60, 1, 0.3),
-			if i == 2 then yellow else orange,
-			Vector3.new(-30, 0, -tilt),
-			Enum.Material.Neon
-		)
-	end
-	-- 翼（内側から 赤 → オレンジ → 黄色 の羽を重ねる）
+	r:ell(v(1.8, 1.8, 2.7), v(0, 0, 0), c)
+	r:ell(v(1.4, 1.5, 1.6), v(0, 0.05, -0.65), yellow)
+	chain(r, { v(0, 0.6, -0.9), v(0, 1.25, -1.3) }, 1.1, 0.95, c)
+	r:bone("Head", "Root", v(0, 1.3, -1.3))
+	local hp = v(0, 1.75, -1.55)
+	r:ell(v(1.2, 1.15, 1.35), hp, c)
 	for _, s in { -1, 1 } do
-		add(BLOCK, Vector3.new(2.6, 0.25, 2), Vector3.new(s * 2.2, 0.8, 0.2), c, Vector3.new(0, 0, s * 25))
-		add(BLOCK, Vector3.new(2.4, 0.22, 1.6), Vector3.new(s * 4.3, 1.8, 0.4), orange, Vector3.new(0, s * -8, s * 30))
-		add(
-			BLOCK,
-			Vector3.new(2, 0.2, 1.1),
-			Vector3.new(s * 6, 3, 0.7),
-			yellow,
-			Vector3.new(0, s * -15, s * 38),
-			Enum.Material.Neon
-		)
+		eye(r, hp + v(s * 0.36, 0.1, -0.35), 0.26, AMBER, rarity >= 4)
 	end
-	-- 長い尾羽（扇のように広げる）
-	for i, yaw in { -18, 0, 18 } do
-		local color = if i == 2 then c else orange
-		local dir = Vector3.new(math.sin(math.rad(yaw)), 0, math.cos(math.rad(yaw)))
-		add(BLOCK, Vector3.new(0.5, 0.15, 4.5), Vector3.new(0, -0.6, 1) + dir * 3, color, Vector3.new(15, yaw, 0))
-		add(BALL, Vector3.one * 0.8, Vector3.new(0, -1.2, 1) + dir * 5.3, yellow, nil, Enum.Material.Neon)
+	-- くちばし（上は先が下に曲がる）
+	r:seg(hp + v(0, 0.02, -0.5), hp + v(0, -0.08, -1.05), 0.36, 0.3, yellow)
+	r:spike(hp + v(0, -0.06, -1), hp + v(0, -0.3, -1.12), 0.14, yellow)
+	-- とさか（光る羽根）
+	for i, tilt in { -22, -8, 8, 22 } do
+		local base = hp + v(tilt / 80, 0.45, 0.05)
+		local tip = base + v(tilt / 30, 0.9 + (i % 2) * 0.35, 0.6)
+		r:seg(base, tip, 0.22, 0.08, if i % 2 == 0 then yellow else orange, GLOW)
 	end
+	r:bone("Jaw", "Head", hp + v(0, -0.2, -0.45))
+	r:seg(hp + v(0, -0.18, -0.5), hp + v(0, -0.22, -0.9), 0.28, 0.16, orange)
+	r:use("Root")
+	local mouth = hp + v(0, -0.18, -1.1)
+	-- つばさ：内側から 赤 → オレンジ → 黄色 の羽根を重ねる
+	for _, s in { -1, 1 } do
+		local name = if s < 0 then "WingL" else "WingR"
+		local sh = v(s * 0.6, 0.55, -0.25)
+		r:bone(name, "Root", sh)
+		local wrist = sh + v(s * 2.4, 0.7, 0.2)
+		r:seg(sh, wrist, 0.6, 0.35, c)
+		for i = 0, 7 do
+			local t = i / 7
+			local base = sh + (wrist - sh) * (0.3 + 0.7 * t)
+			local dir = v(s * (0.15 + 0.9 * t), -0.05 + 0.1 * t, 1 - 0.75 * t).Unit
+			local len = 1.8 + 1.6 * t
+			local color = if t < 0.5 then c:Lerp(orange, t * 2) else orange:Lerp(yellow, (t - 0.5) * 2)
+			r:seg(base, base + dir * len, 0.55, 0.1, color, if t > 0.7 then GLOW else nil)
+			-- 上に重なる短い羽根
+			r:seg(base + v(0, 0.1, 0), base + v(0, 0.1, 0) + dir * len * 0.5, 0.6, 0.12, c)
+		end
+		r:use("Root")
+	end
+	-- 尾羽
+	r:bone("Tail1", "Root", v(0, -0.2, 1.1))
+	for i, yaw in { -26, -13, 0, 13, 26 } do
+		local dir = v(math.sin(math.rad(yaw)), -0.18, math.cos(math.rad(yaw))).Unit
+		local len = 4.8 - math.abs(yaw) / 20
+		local base = v(0, -0.2, 1.1)
+		r:seg(base, base + dir * len, 0.5, 0.1, if i == 3 then c else orange)
+		r:ball(0.6, base + dir * (len - 0.15), yellow, GLOW)
+	end
+	r:use("Root")
+	return { mouths = { mouth }, top = 3.4, flapSpeed = 4, flapAmp = 26 }
 end
 
 local SCALE = { small = 1, winged = 1, magma = 1, triple = 1, giant = 1.4, phoenix = 1.1 }
@@ -266,16 +380,17 @@ local function scaleOf(dragon): number
 	return (SCALE[dragon.shape] or 1) * (1 + 0.08 * ((dragon.rarity or 1) - 1))
 end
 
-local function build(dragon): Model
-	local model = Instance.new("Model")
-	model.Name = dragon.name
+local function build(dragon)
 	local scale = scaleOf(dragon)
-	local add = makeBuilder(model, scale)
+	local r = Rig.new(dragon.name, scale)
 	local builder = BUILDERS[dragon.shape] or BUILDERS.small
-	builder(add, dragon.color)
+	local look = builder(r, dragon.color, dragon.rarity or 2)
+	local model = r:finish()
+	local root = r.root
+
 	local nameTag = Instance.new("BillboardGui")
 	nameTag.Size = UDim2.new(8, 0, 1.5, 0)
-	nameTag.StudsOffset = Vector3.new(0, 4 * scale, 0)
+	nameTag.StudsOffset = Vector3.new(0, look.top * scale + 1, 0)
 	nameTag.MaxDistance = 80
 	nameTag.LightInfluence = 0
 	local text = Instance.new("TextLabel")
@@ -288,30 +403,30 @@ local function build(dragon): Model
 	text.TextStrokeTransparency = 0.3
 	text.Text = dragon.name
 	text.Parent = nameTag
-	local first = model:FindFirstChildWhichIsA("BasePart")
-	model.PrimaryPart = first
+	nameTag.Adornee = root
+	nameTag.Parent = model
+
 	-- ウルトラレア以上はキラキラ光る
-	if (dragon.rarity or 0) >= 4 and first then
+	if (dragon.rarity or 0) >= 4 then
 		local sparkles = Instance.new("Sparkles")
 		sparkles.SparkleColor = dragon.color
-		sparkles.Parent = first
+		sparkles.Parent = root
 	end
-	if dragon.shape == "phoenix" and first then
+	if dragon.shape == "phoenix" then
 		local fire = Instance.new("Fire")
 		fire.Size = 3
 		fire.Heat = 2
 		fire.Color = if dragon.rarity then dragon.color else Color3.fromRGB(255, 140, 30)
 		fire.SecondaryColor = Color3.fromRGB(255, 50, 20)
-		fire.Parent = first
+		fire.Parent = root
 		local glow = Instance.new("PointLight")
 		glow.Color = Color3.fromRGB(255, 160, 60)
 		glow.Range = 12
-		glow.Parent = first
+		glow.Parent = root
 	end
-	nameTag.Adornee = first
-	nameTag.Parent = model
-	return model
+	return model, root, r.joints, look
 end
+Dragons.build = build
 
 function Dragons.equip(player: Player, id: string?)
 	local old = followers[player]
@@ -323,19 +438,48 @@ function Dragons.equip(player: Player, id: string?)
 	if not dragon then
 		return
 	end
-	local model = build(dragon)
-	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local start = if root then root.CFrame else CFrame.new(0, 5, 0)
-	model:PivotTo(start)
+	local model, root, joints, look = build(dragon)
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local start = if hrp then hrp.CFrame else CFrame.new(0, 5, 0)
+	root.CFrame = start
 	model.Parent = folder
 	followers[player] = {
 		model = model,
+		root = root,
+		joints = joints,
+		look = look,
 		cf = start,
 		scale = scaleOf(dragon),
 		dragon = dragon,
 		lastAttack = 0,
+		jawUntil = 0,
+		phase = math.random() * 10,
 		target = nil,
 	}
+end
+
+-- 羽ばたき・しっぽ・首・あごを動かす
+local function animate(f: Follower, t: number, now: number)
+	local look = f.look
+	local time = t + f.phase
+	for name, joint in f.joints do
+		if name == "WingL" or name == "WingR" then
+			local side = if name == "WingL" then -1 else 1
+			local flap = math.sin(time * look.flapSpeed) * look.flapAmp
+			Rig.turn(joint, 0, side * -6, side * flap)
+		elseif string.sub(name, 1, 4) == "Tail" then
+			local i = tonumber(string.match(name, "(%d+)$")) or 1
+			local sway = math.sin(time * 2.2 - i * 0.7) * (6 + i * 2)
+			Rig.turn(joint, math.sin(time * 1.6 - i * 0.5) * 3, sway, 0)
+		elseif string.sub(name, 1, 4) == "Head" then
+			local i = tonumber(string.match(name, "(%d+)$")) or 0
+			Rig.turn(joint, math.sin(time * 1.5 + i) * 5, math.sin(time * 0.9 + i * 2) * 6, 0)
+		elseif string.sub(name, 1, 3) == "Jaw" then
+			local open = if now < f.jawUntil then -28 else -2 - (math.sin(time * 1.2) + 1) * 2
+			Rig.turn(joint, open, 0, 0)
+		end
+	end
 end
 
 -- 当たったところで、光がふくらんで消える
@@ -358,12 +502,12 @@ local function burst(position: Vector3, color: Color3, size: number)
 end
 
 -- 口から敵へ、光の玉を飛ばす
-local function shoot(player: Player, f: Follower, enemy, headOffsetX: number)
+local function shoot(player: Player, f: Follower, enemy, mouth: Vector3)
 	local attack = f.dragon.attack
 	if not Enemies.isAlive(enemy) or not f.model.Parent then
 		return
 	end
-	local from = (f.cf * CFrame.new(headOffsetX * f.scale, 1.5 * f.scale, -2.5 * f.scale)).Position
+	local from = (f.cf * CFrame.new(mouth * f.scale)).Position
 	local to = Enemies.centerOf(enemy)
 	local ball = Instance.new("Part")
 	ball.Shape = Enum.PartType.Ball
@@ -391,8 +535,6 @@ local function shoot(player: Player, f: Follower, enemy, headOffsetX: number)
 	end)
 end
 
-local TRIPLE_HEADS = { -1.8, 0, 1.8 }
-
 local function tryAttack(player: Player, f: Follower)
 	local attack = f.dragon.attack
 	if not attack then
@@ -408,9 +550,11 @@ local function tryAttack(player: Player, f: Follower)
 		return
 	end
 	f.lastAttack = now
+	f.jawUntil = now + 0.35 + (attack.shots - 1) * 0.12
+	local mouths = f.look.mouths
 	for i = 1, attack.shots do
-		local headX = if attack.shots == 3 then TRIPLE_HEADS[i] else 0
-		task.delay((i - 1) * 0.12, shoot, player, f, enemy, headX)
+		local mouth = mouths[(i - 1) % #mouths + 1]
+		task.delay((i - 1) * 0.12, shoot, player, f, enemy, mouth)
 	end
 end
 
@@ -422,6 +566,7 @@ function Dragons.start()
 	local t = 0
 	RunService.Heartbeat:Connect(function(dt)
 		t += dt
+		local now = os.clock()
 		for player, f in followers do
 			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 			local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -461,7 +606,8 @@ function Dragons.start()
 			else
 				f.cf = f.cf:Lerp(goal, math.min(1, dt * 8))
 			end
-			f.model:PivotTo(f.cf)
+			f.root.CFrame = f.cf
+			animate(f, t, now)
 		end
 	end)
 
