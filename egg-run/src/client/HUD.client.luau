@@ -416,10 +416,11 @@ end
 
 -- 図鑑：ドラゴンの絵を、四角と丸の部品で描く（右向き、正方形の中に 0〜1 の位置で置く）
 -- tone は "body"（体の色）/ "dark"（つばさ・とげ）/ "light"（おなか）/ "eye"
+-- レア度の飾り："horn"（銀・金の角）/ "gem"（胸の宝石）/ "halo"（★5 の光の輪）
 type Piece = { tone: string, x: number, y: number, w: number, h: number, rot: number, round: number }
 local SHADOW = Color3.fromRGB(10, 10, 18)
 
-local function dragonPieces(shape: string): { Piece }
+local function dragonPieces(shape: string, rarity: number): { Piece }
 	local list: { Piece } = {}
 	local function add(tone: string, x: number, y: number, w: number, h: number, rot: number?, round: number?)
 		table.insert(list, { tone = tone, x = x, y = y, w = w, h = h, rot = rot or 0, round = round or 0.5 })
@@ -439,6 +440,8 @@ local function dragonPieces(shape: string): { Piece }
 		add("body", x2, y, w, h, 0, 0.3)
 	end
 
+	-- 頭のまん中の x、頭のてっぺんの y、胸の位置（レア度の飾りをつける場所）
+	local hx, top, cx, cy = 0.72, 0.25, 0.66, 0.62
 	if shape == "small" then
 		add("dark", 0.6, 0.4, 0.24, 0.12, -35)
 		limb("body", 0.35, 0.68, 0.1, 0.62, 0.09)
@@ -450,6 +453,7 @@ local function dragonPieces(shape: string): { Piece }
 		eye(0.8, 0.37, 0.08)
 		add("dark", 0.5, 0.44, 0.2, 0.1, -45)
 	elseif shape == "winged" then
+		hx, top, cx, cy = 0.82, 0.24, 0.64, 0.6
 		add("dark", 0.46, 0.3, 0.52, 0.15, -25)
 		limb("body", 0.3, 0.6, 0.04, 0.68, 0.07)
 		add("body", 0.46, 0.58, 0.42, 0.22)
@@ -461,6 +465,7 @@ local function dragonPieces(shape: string): { Piece }
 		eye(0.84, 0.29, 0.06)
 		add("dark", 0.38, 0.32, 0.5, 0.14, -60)
 	elseif shape == "magma" then
+		hx, top, cx, cy = 0.8, 0.41, 0.7, 0.68
 		limb("body", 0.3, 0.66, 0.04, 0.78, 0.11)
 		for i, x in { 0.3, 0.42, 0.54, 0.66 } do
 			add("dark", x, 0.45 + (i == 1 and 0.03 or 0), 0.1, 0.1, 45, 0.15)
@@ -472,6 +477,7 @@ local function dragonPieces(shape: string): { Piece }
 		add("body", 0.8, 0.52, 0.28, 0.22)
 		eye(0.84, 0.48, 0.07)
 	elseif shape == "phoenix" then
+		hx, top, cx, cy = 0.78, 0.255, 0.64, 0.64
 		add("dark", 0.42, 0.3, 0.42, 0.12, -55)
 		add("dark", 0.5, 0.3, 0.42, 0.12, -30)
 		limb("dark", 0.36, 0.64, 0.02, 0.5, 0.07)
@@ -488,6 +494,7 @@ local function dragonPieces(shape: string): { Piece }
 		eye(0.8, 0.31, 0.06)
 		add("dark", 0.42, 0.4, 0.42, 0.12, -35)
 	elseif shape == "triple" then
+		hx, top, cx, cy = 0.58, 0.14, 0.58, 0.68
 		add("dark", 0.38, 0.4, 0.36, 0.13, -40)
 		limb("body", 0.25, 0.7, 0.02, 0.78, 0.08)
 		add("body", 0.4, 0.66, 0.42, 0.28)
@@ -499,6 +506,7 @@ local function dragonPieces(shape: string): { Piece }
 			eye(head[1] + 0.03, head[2] - 0.01, 0.05)
 		end
 	else -- giant
+		hx, top, cx, cy = 0.73, 0.13, 0.64, 0.5
 		limb("body", 0.46, 0.68, 0.08, 0.88, 0.13)
 		for i, y in { 0.42, 0.55, 0.68 } do
 			add("dark", 0.32 - (i - 2) * 0.01, y, 0.1, 0.1, 45, 0.15)
@@ -511,6 +519,20 @@ local function dragonPieces(shape: string): { Piece }
 		add("dark", 0.66, 0.1, 0.05, 0.12, -20, 0.3)
 		add("body", 0.73, 0.22, 0.28, 0.18)
 		eye(0.77, 0.18, 0.06)
+	end
+
+	-- レアなほど、頭の上の角がふえる。★3 から胸に宝石、★5 は光の輪
+	local crown = if rarity >= 4 then 3 elseif rarity >= 2 then rarity - 1 else 0
+	for k = 1, crown do
+		local len = 0.08 + 0.02 * rarity
+		local offset = (k - (crown + 1) / 2) * 0.06
+		add("horn", hx + offset, top - len / 2 + 0.03, 0.035, len, offset * 300, 0.3)
+	end
+	if rarity >= 3 then
+		add("gem", cx, cy, 0.07, 0.07, 45, 0.2)
+	end
+	if rarity >= 5 then
+		add("halo", hx, math.max(0.05, top - 0.13), 0.22, 0.07)
 	end
 	return list
 end
@@ -535,9 +557,12 @@ local function drawDragon(parent: GuiObject, dragon, known: boolean, z: number)
 		light = c:Lerp(Color3.new(1, 1, 1), 0.45),
 		eye = Color3.new(1, 1, 1),
 		pupil = Color3.fromRGB(20, 20, 30),
+		horn = if (dragon.rarity or 0) >= 4 then Color3.fromRGB(255, 200, 60) else Color3.fromRGB(215, 222, 235),
+		gem = Config.Rarities[dragon.rarity or 1].color,
+		halo = Config.Rarities[dragon.rarity or 1].color,
 	}
-	for _, p in dragonPieces(dragon.shape) do
-		if not known and (p.tone == "eye" or p.tone == "pupil") then
+	for _, p in dragonPieces(dragon.shape, dragon.rarity or 0) do
+		if not known and (p.tone == "eye" or p.tone == "pupil" or p.tone == "gem") then
 			continue
 		end
 		local f = Instance.new("Frame")
@@ -549,6 +574,14 @@ local function drawDragon(parent: GuiObject, dragon, known: boolean, z: number)
 		f.BackgroundColor3 = if known then tones[p.tone] else SHADOW
 		f.ZIndex = z + 1
 		f.Parent = canvas
+		if p.tone == "halo" then
+			-- 輪：中をすかして、ふちだけ見せる
+			f.BackgroundTransparency = 1
+			local ring = Instance.new("UIStroke")
+			ring.Thickness = 2
+			ring.Color = if known then tones.halo else SHADOW
+			ring.Parent = f
+		end
 		if p.round > 0 then
 			local r = Instance.new("UICorner")
 			r.CornerRadius = UDim.new(p.round, 0)

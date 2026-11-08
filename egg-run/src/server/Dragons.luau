@@ -17,6 +17,9 @@ type Look = {
 	top: number, -- 名前を出す高さ
 	flapSpeed: number, -- 羽ばたきの速さ
 	flapAmp: number, -- 羽ばたきの大きさ（度）
+	body: { size: Vector3, pos: Vector3 }?, -- 胴体のだ円体（レア度の飾りをつける場所）
+	chest: Vector3?, -- 胸の宝石の位置
+	gem: number?, -- 胸の宝石の大きさ
 }
 
 local folder: Folder
@@ -46,6 +49,47 @@ local SCALES, ROCK, METAL, GLOW = A.SCALES, A.ROCK, A.METAL, A.GLOW
 local shade, tint, v = A.shade, A.tint, A.v
 local eye, chain, tail, spines, leg, wing = A.eye, A.chain, A.tail, A.spines, A.leg, A.wing
 
+--------------------------------------------------------------------------------
+-- レア度が高いほど強そうにする飾り
+--   ★2 銀の角が1組ふえる、背中のとげがふえる
+--   ★3 角が2組、目が光る、背中のとげが金属に、胸に宝石
+--   ★4 金の角が3組（かんむり）、体の横に光るもよう、光をまとう
+--   ★5 頭の上に光の輪、光の粒が舞う
+-- rarity が 0 のとき（はじめの仲間）は飾りをつけない
+--------------------------------------------------------------------------------
+local GOLD = Color3.fromRGB(255, 200, 60)
+local SILVER = Color3.fromRGB(215, 222, 235)
+
+local function accentOf(rarity: number): Color3
+	local info = Config.Rarities[rarity]
+	return if info then info.color else IVORY
+end
+
+-- 角の色と材質
+local function hornOf(rarity: number, base: Color3): (Color3, Enum.Material?)
+	if rarity >= 5 then
+		return GOLD, GLOW
+	elseif rarity >= 4 then
+		return GOLD, METAL
+	elseif rarity >= 2 then
+		return SILVER, METAL
+	end
+	return base, nil
+end
+
+-- 背中のとげ：レアなほど数が多く、高く、光る
+local function crest(r, from: Vector3, to: Vector3, n: number, h0: number, h1: number, base: Color3, rarity: number)
+	local extra = math.max(0, rarity - 1)
+	local k = 1 + 0.18 * extra
+	local color, mat = base, nil
+	if rarity >= 4 then
+		color, mat = accentOf(rarity), GLOW
+	elseif rarity >= 3 then
+		color, mat = accentOf(rarity), METAL
+	end
+	spines(r, from, to, n + extra, h0 * k, h1 * k, color, mat)
+end
+
 -- ドラゴンの頭
 type HeadOpts = {
 	bone: string, -- 頭の骨
@@ -58,11 +102,15 @@ type HeadOpts = {
 	iris: Color3,
 	glowEyes: boolean?,
 	mat: Enum.Material?,
+	rarity: number?, -- レア度（角のかんむり、光の輪）
+	halo: boolean?, -- ★5 の光の輪をこの頭につけるか
 }
 
 -- ドラゴンの頭（頭・鼻先・まゆ・目・鼻のあな・角・きば・下あご）。口の位置を返す
 local function dragonHead(r, o: HeadOpts): Vector3
 	local L, p, c = o.size, o.pos, o.color
+	local rarity = o.rarity or 0
+	local hornColor, hornMat = hornOf(rarity, o.horn)
 	r:use(o.bone)
 	r:ell(v(0.62, 0.52, 0.66) * L, p, c, nil, o.mat)
 	r:ell(v(0.44, 0.3, 0.74) * L, p + v(0, -0.05, -0.46) * L, c, v(-6, 0, 0), o.mat)
@@ -77,10 +125,17 @@ local function dragonHead(r, o: HeadOpts): Vector3
 		local h0 = p + v(s * 0.17, 0.22, 0.1) * L
 		local h1 = p + v(s * 0.27, 0.42, 0.42) * L
 		local h2 = p + v(s * 0.31, 0.47, 0.82) * L
-		r:limb(h0, h1, 0.14 * L, o.horn)
-		r:ball(0.12 * L, h1, o.horn)
-		r:limb(h1, h2, 0.09 * L, o.horn)
-		r:ball(0.08 * L, h2, o.horn)
+		r:limb(h0, h1, 0.14 * L, hornColor, hornMat)
+		r:ball(0.12 * L, h1, hornColor, hornMat)
+		r:limb(h1, h2, 0.09 * L, hornColor, hornMat)
+		r:ball(0.08 * L, h2, hornColor, hornMat)
+		-- レアなほど、頭の上に角がならぶ（★4 からは かんむりのよう）
+		local crown = if rarity >= 4 then 3 elseif rarity >= 3 then 2 elseif rarity >= 2 then 1 else 0
+		for k = 1, crown do
+			local base = p + v(s * (0.08 + k * 0.03), 0.24, -0.22 + (k - 1) * 0.2) * L
+			local tip = base + v(s * 0.1, 0.32 + 0.07 * rarity - k * 0.04, 0.16) * L
+			r:spike(base, tip, 0.13 * L, hornColor, hornMat)
+		end
 		-- ほおのとげ
 		r:spike(p + v(s * 0.28, -0.06, 0.12) * L, p + v(s * 0.46, -0.04, 0.42) * L, 0.12 * L, o.horn)
 		-- 上のきば
@@ -99,6 +154,14 @@ local function dragonHead(r, o: HeadOpts): Vector3
 		end
 	end
 	r:use(o.bone)
+	-- ★5：頭の上に浮かぶ光の輪
+	if rarity >= 5 and o.halo ~= false then
+		local center = p + v(0, 0.95, 0.3) * L
+		for i = 0, 9 do
+			local a = i / 10 * math.pi * 2
+			r:ball(0.13 * L, center + v(math.cos(a) * 0.45, 0, math.sin(a) * 0.45) * L, accentOf(rarity), GLOW)
+		end
+	end
 	return p + v(0, -0.22, -0.88) * L
 end
 
@@ -124,8 +187,9 @@ BUILDERS.small = function(r, c, rarity)
 		belly = belly,
 		horn = IVORY,
 		iris = AMBER,
-		glowEyes = rarity >= 4,
+		glowEyes = rarity >= 3,
 		mat = SCALES,
+		rarity = rarity,
 	})
 	r:use("Root")
 	for _, s in { -1, 1 } do
@@ -140,9 +204,17 @@ BUILDERS.small = function(r, c, rarity)
 			mat = SCALES,
 		})
 	end
-	spines(r, v(0, 0.95, -0.4), v(0, 0.85, 0.8), 3, 0.35, 0.25, IVORY)
+	crest(r, v(0, 0.95, -0.4), v(0, 0.85, 0.8), 3, 0.35, 0.25, IVORY, rarity)
 	tail(r, "Tail", v(0, -0.15, 1.1), v(0, -0.25, 1), 4, 2.6, 0.85, c, SCALES, IVORY)
-	return { mouths = { mouth }, top = 3, flapSpeed = 9, flapAmp = 32 }
+	return {
+		mouths = { mouth },
+		top = 3,
+		flapSpeed = 9,
+		flapAmp = 32,
+		body = { size = v(2.1, 1.9, 2.6), pos = v(0, 0, 0) },
+		chest = v(0, -0.35, -1.38),
+		gem = 0.42,
+	}
 end
 
 -- つばさの大きい、すらりとしたドラゴン。背中にいなずまの光
@@ -164,6 +236,7 @@ BUILDERS.winged = function(r, c, rarity)
 		iris = bolt,
 		glowEyes = true,
 		mat = SCALES,
+		rarity = rarity,
 	})
 	r:use("Root")
 	for _, s in { -1, 1 } do
@@ -182,12 +255,23 @@ BUILDERS.winged = function(r, c, rarity)
 		local s = if i % 2 == 0 then 1 else -1
 		r:ell(v(0.18, 0.14, 0.95), v(s * 0.18, 0.78, -1.1 + i * 0.75), bolt, v(-4, s * 35, 0), GLOW)
 	end
+	if rarity >= 2 then
+		crest(r, v(0, 0.8, -1.3), v(0, 0.76, 1.4), 3, 0.35, 0.25, shade(c, 0.4), rarity)
+	end
 	local tip = tail(r, "Tail", v(0, 0, 1.7), v(0, -0.15, 1), 5, 4.8, 0.75, c, SCALES, shade(c, 0.4))
 	-- しっぽの先のスペード
 	r:tri(tip + v(0, 0, -0.2), tip + v(-0.55, 0, 0.35), tip + v(0, 0, 1.1), bolt, GLOW, 0.12)
 	r:tri(tip + v(0, 0, -0.2), tip + v(0.55, 0, 0.35), tip + v(0, 0, 1.1), bolt, GLOW, 0.12)
 	r:use("Root")
-	return { mouths = { mouth }, top = 3.8, flapSpeed = 6, flapAmp = 30 }
+	return {
+		mouths = { mouth },
+		top = 3.8,
+		flapSpeed = 6,
+		flapAmp = 30,
+		body = { size = v(1.7, 1.6, 3.6), pos = v(0, 0, 0) },
+		chest = v(0, -0.3, -1.72),
+		gem = 0.36,
+	}
 end
 
 -- 岩のドラゴン：重い体に、マグマの光るすじ。つばさはない
@@ -203,7 +287,13 @@ BUILDERS.magma = function(r, c, rarity)
 	-- 背中の岩のかたまり
 	for i = -2, 2 do
 		local s = if i % 2 == 0 then 1 else -1
-		r:block(v(1, 1, 1) * (1.15 - math.abs(i) * 0.12), v(s * 0.45, 1.25, i * 1), rock, v(45, i * 20, 45), ROCK)
+		local size = 1.15 - math.abs(i) * 0.12
+		r:block(v(1, 1, 1) * size, v(s * 0.45, 1.25, i * 1), rock, v(45, i * 20, 45), ROCK)
+		-- ★3 から、岩のかたまりの上に光る結晶がはえる
+		if rarity >= 3 then
+			local base = v(s * 0.45, 1.25 + size * 0.5, i * 1)
+			r:spike(base, base + v(s * 0.15, 0.5 + rarity * 0.15, 0.2), 0.45, accentOf(rarity), GLOW)
+		end
 	end
 	chain(r, { v(0, 0.5, -1.9), v(0, 0.9, -2.6) }, 1.8, 1.6, c, ROCK)
 	r:bone("Head", "Root", v(0, 0.95, -2.7))
@@ -218,6 +308,7 @@ BUILDERS.magma = function(r, c, rarity)
 		iris = lava,
 		glowEyes = true,
 		mat = ROCK,
+		rarity = rarity,
 	})
 	r:use("Root")
 	for _, s in { -1, 1 } do
@@ -231,7 +322,15 @@ BUILDERS.magma = function(r, c, rarity)
 	light.Range = 10
 	light.Brightness = 1.5
 	light.Parent = r.root
-	return { mouths = { mouth }, top = 3.6, flapSpeed = 0, flapAmp = 0 }
+	return {
+		mouths = { mouth },
+		top = 3.6,
+		flapSpeed = 0,
+		flapAmp = 0,
+		body = { size = v(3.4, 2.7, 5), pos = v(0, 0, 0) },
+		chest = v(0, -0.45, -2.42),
+		gem = 0.6,
+	}
 end
 
 -- 三つの首のドラゴン：金属のうろこ、しっぽも2本
@@ -258,6 +357,8 @@ BUILDERS.triple = function(r, c, rarity)
 				iris = Color3.fromRGB(255, 80, 50),
 				glowEyes = true,
 				mat = METAL,
+				rarity = rarity,
+				halo = i == 2, -- 光の輪はまん中の頭だけ
 			})
 		)
 		r:use("Root")
@@ -273,9 +374,20 @@ BUILDERS.triple = function(r, c, rarity)
 			mat = METAL,
 		})
 	end
+	if rarity >= 2 then
+		crest(r, v(0, 1.18, -0.4), v(0, 1.08, 1.4), 3, 0.45, 0.3, IVORY, rarity)
+	end
 	tail(r, "TailA", v(-0.5, -0.2, 1.7), v(-0.25, -0.15, 1), 4, 3.4, 0.7, c, METAL, IVORY)
 	tail(r, "TailB", v(0.5, -0.2, 1.7), v(0.25, -0.15, 1), 4, 3.4, 0.7, c, METAL, IVORY)
-	return { mouths = mouths, top = 4.8, flapSpeed = 5, flapAmp = 28 }
+	return {
+		mouths = mouths,
+		top = 4.8,
+		flapSpeed = 5,
+		flapAmp = 28,
+		body = { size = v(2.8, 2.4, 3.8), pos = v(0, 0, 0) },
+		chest = v(0, -0.45, -1.82),
+		gem = 0.5,
+	}
 end
 
 -- 立って歩く大きなドラゴン：太い足と短い腕、背中に一列のとげ
@@ -295,8 +407,9 @@ BUILDERS.giant = function(r, c, rarity)
 		belly = belly,
 		horn = plate,
 		iris = AMBER,
-		glowEyes = rarity >= 4,
+		glowEyes = rarity >= 3,
 		mat = SCALES,
+		rarity = rarity,
 	})
 	r:use("Root")
 	for _, s in { -1, 1 } do
@@ -310,9 +423,17 @@ BUILDERS.giant = function(r, c, rarity)
 		-- 太い足
 		leg(r, v(s * 1.3, -1.3, 0.2), v(s * 1.55, -2.7, -0.75), v(s * 1.5, -4, 0.15), 1.8, c, IVORY, SCALES)
 	end
-	spines(r, v(0, 3.3, 0.35), v(0, -0.6, 2), 6, 1.3, 0.7, plate)
+	crest(r, v(0, 3.3, 0.35), v(0, -0.6, 2), 6, 1.3, 0.7, plate, rarity)
 	tail(r, "Tail", v(0, -1.4, 1.5), v(0, -0.35, 1), 5, 6, 1.8, c, SCALES, plate)
-	return { mouths = { mouth }, top = 6.2, flapSpeed = 0, flapAmp = 0 }
+	return {
+		mouths = { mouth },
+		top = 6.2,
+		flapSpeed = 0,
+		flapAmp = 0,
+		body = { size = v(3.3, 5.2, 3.2), pos = v(0, 0.6, 0) },
+		chest = v(0, 1.3, -1.85),
+		gem = 0.6,
+	}
 end
 
 -- 火の鳥：羽根を重ねたつばさと、扇のように広がる長い尾羽
@@ -326,16 +447,25 @@ BUILDERS.phoenix = function(r, c, rarity)
 	local hp = v(0, 1.75, -1.55)
 	r:ell(v(1.2, 1.15, 1.35), hp, c)
 	for _, s in { -1, 1 } do
-		eye(r, hp + v(s * 0.36, 0.1, -0.35), 0.26, AMBER, rarity >= 4)
+		eye(r, hp + v(s * 0.36, 0.1, -0.35), 0.26, AMBER, rarity >= 3)
 	end
 	-- くちばし（上は先が下に曲がる）
 	r:seg(hp + v(0, 0.02, -0.5), hp + v(0, -0.08, -1.05), 0.36, 0.3, yellow)
 	r:spike(hp + v(0, -0.06, -1), hp + v(0, -0.3, -1.12), 0.14, yellow)
 	-- とさか（光る羽根）
-	for i, tilt in { -22, -8, 8, 22 } do
+	local crestTilts = if rarity >= 4 then { -34, -22, -8, 8, 22, 34 } else { -22, -8, 8, 22 }
+	for i, tilt in crestTilts do
 		local base = hp + v(tilt / 80, 0.45, 0.05)
 		local tip = base + v(tilt / 30, 0.9 + (i % 2) * 0.35, 0.6)
 		r:seg(base, tip, 0.22, 0.08, if i % 2 == 0 then yellow else orange, GLOW)
+	end
+	-- ★5：頭の上に浮かぶ光の輪
+	if rarity >= 5 then
+		local center = hp + v(0, 1.35, 0.35)
+		for i = 0, 9 do
+			local a = i / 10 * math.pi * 2
+			r:ball(0.17, center + v(math.cos(a) * 0.6, 0, math.sin(a) * 0.6), accentOf(rarity), GLOW)
+		end
 	end
 	r:bone("Jaw", "Head", hp + v(0, -0.2, -0.45))
 	r:seg(hp + v(0, -0.18, -0.5), hp + v(0, -0.22, -0.9), 0.28, 0.16, orange)
@@ -362,15 +492,26 @@ BUILDERS.phoenix = function(r, c, rarity)
 	end
 	-- 尾羽
 	r:bone("Tail1", "Root", v(0, -0.2, 1.1))
-	for i, yaw in { -26, -13, 0, 13, 26 } do
+	-- ★4 からは尾羽が7本になり、長くなる
+	local yaws = if rarity >= 4 then { -36, -24, -12, 0, 12, 24, 36 } else { -26, -13, 0, 13, 26 }
+	local middle = (#yaws + 1) // 2
+	for i, yaw in yaws do
 		local dir = v(math.sin(math.rad(yaw)), -0.18, math.cos(math.rad(yaw))).Unit
-		local len = 4.8 - math.abs(yaw) / 20
+		local len = 4.8 - math.abs(yaw) / 20 + math.max(0, rarity - 2) * 0.4
 		local base = v(0, -0.2, 1.1)
-		r:seg(base, base + dir * len, 0.5, 0.1, if i == 3 then c else orange)
+		r:seg(base, base + dir * len, 0.5, 0.1, if i == middle then c else orange)
 		r:ball(0.6, base + dir * (len - 0.15), yellow, GLOW)
 	end
 	r:use("Root")
-	return { mouths = { mouth }, top = 3.4, flapSpeed = 4, flapAmp = 26 }
+	return {
+		mouths = { mouth },
+		top = 3.4 + (if rarity >= 5 then 0.8 else 0),
+		flapSpeed = 4,
+		flapAmp = 26,
+		body = { size = v(1.8, 1.8, 2.7), pos = v(0, 0, 0) },
+		chest = v(0, -0.2, -1.42),
+		gem = 0.38,
+	}
 end
 
 -- 海と風の守り神：銀色の流れるような体、大きなつばさ、背中と尾の先にひれ
@@ -472,16 +613,51 @@ end
 local SCALE =
 	{ small = 1, winged = 1, magma = 1, triple = 1, giant = 1.4, phoenix = 1.1, guardian = 1.2, leviathan = 1.2 }
 
--- レアなドラゴンほど少し大きい
+-- レアなドラゴンほど大きい（レジェンドは ノーマルの 1.4倍）
 local function scaleOf(dragon): number
-	return (SCALE[dragon.shape] or 1) * (1 + 0.08 * ((dragon.rarity or 1) - 1))
+	return (SCALE[dragon.shape] or 1) * (1 + 0.1 * ((dragon.rarity or 1) - 1))
+end
+
+-- どの形にもつける、レア度の飾り（胸の宝石、体の横の光るもよう）
+local function adorn(r, look: Look, rarity: number)
+	if rarity < 3 then
+		return
+	end
+	r:use("Root")
+	local accent = accentOf(rarity)
+	if look.chest then
+		local g = look.gem or 0.45
+		r:ell(
+			v(g * 1.6, g * 1.6, g * 0.45),
+			look.chest + v(0, 0, 0.06),
+			if rarity >= 4 then GOLD else SILVER,
+			nil,
+			METAL
+		)
+		r:ell(v(g, g, g * 0.6), look.chest + v(0, 0, -0.06), accent, nil, GLOW)
+	end
+	local body = look.body
+	if rarity >= 4 and body then
+		-- だ円体の表面に、ななめの光るすじを3本ずつ
+		local a, h, d = body.size.X / 2, body.size.Y / 2, body.size.Z / 2
+		for _, s in { -1, 1 } do
+			for i = -1, 1 do
+				local y, z = h * 0.12, i * d * 0.42
+				local x = a * math.sqrt(math.max(0, 1 - (y / h) ^ 2 - (z / d) ^ 2))
+				r:ell(v(0.12, h * 0.75, math.min(a, d) * 0.16), body.pos + v(s * x, y, z), accent, v(-25, 0, 0), GLOW)
+			end
+		end
+	end
 end
 
 local function build(dragon)
 	local scale = scaleOf(dragon)
 	local r = Rig.new(dragon.name, scale)
 	local builder = BUILDERS[dragon.shape] or BUILDERS.small
-	local look = builder(r, dragon.color, dragon.rarity or 2)
+	-- はじめの仲間はレア度がないので 0（レア度の飾りはつけない）
+	local rarity = dragon.rarity or 0
+	local look = builder(r, dragon.color, rarity)
+	adorn(r, look, rarity)
 	local model = r:finish()
 	local root = r.root
 
@@ -495,19 +671,38 @@ local function build(dragon)
 	text.BackgroundTransparency = 1
 	text.Font = Enum.Font.GothamBold
 	text.TextScaled = true
-	local rarity = dragon.rarity and Config.Rarities[dragon.rarity]
-	text.TextColor3 = if rarity then rarity.color else Color3.new(1, 1, 1)
+	local rarityInfo = dragon.rarity and Config.Rarities[dragon.rarity]
+	text.TextColor3 = if rarityInfo then rarityInfo.color else Color3.new(1, 1, 1)
 	text.TextStrokeTransparency = 0.3
 	text.Text = dragon.name
 	text.Parent = nameTag
 	nameTag.Adornee = root
 	nameTag.Parent = model
 
-	-- ウルトラレア以上はキラキラ光る
-	if (dragon.rarity or 0) >= 4 then
+	-- ウルトラレア以上はキラキラ光り、レア度の色の光をまとう
+	if rarity >= 4 then
 		local sparkles = Instance.new("Sparkles")
 		sparkles.SparkleColor = dragon.color
 		sparkles.Parent = root
+		local aura = Instance.new("PointLight")
+		aura.Color = accentOf(rarity)
+		aura.Range = 8 + rarity * 2
+		aura.Brightness = 1.2
+		aura.Parent = root
+	end
+	-- レジェンドは、光の粒がまわりに舞い上がる
+	if rarity >= 5 then
+		local motes = Instance.new("ParticleEmitter")
+		motes.Color = ColorSequence.new(accentOf(rarity), GOLD)
+		motes.LightEmission = 1
+		motes.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+		motes.Transparency = NumberSequence.new(0.2, 1)
+		motes.Lifetime = NumberRange.new(1, 1.6)
+		motes.Rate = 14
+		motes.Speed = NumberRange.new(1, 3)
+		motes.SpreadAngle = Vector2.new(180, 180)
+		motes.Acceleration = Vector3.new(0, 3, 0)
+		motes.Parent = root
 	end
 	if dragon.shape == "phoenix" then
 		local fire = Instance.new("Fire")
