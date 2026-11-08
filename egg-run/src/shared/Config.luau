@@ -1,7 +1,7 @@
 -- ゲーム全体の設定（数字を変えるとバランスを調整できます）
 local Config = {}
 
-Config.GameTitle = "たまごダッシュ"
+Config.GameTitle = "爆速ドラゴニック卵ゲーム🐉"
 
 -- 進行状況を保存する DataStore の名前（変えると全員の記録がリセットされます）
 Config.DataStoreName = "EggDash_v1"
