@@ -1,0 +1,505 @@
+-- マップを組み立てる：ベース（ルームランナー・ショップ・巣）と、遠くへ続くたまごの道
+-- ベースの中心は原点。道は -Z 方向（スポーンしたときに向いている方向）へ伸びる
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+
+local WorldBuilder = {}
+
+local HUB_HALF = 80 -- ベースの半分の大きさ
+local TRACK_WIDTH = 90
+local ROAD_WIDTH = 24
+
+local world: Folder
+
+local function part(props: { [string]: any }): Part
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	for key, value in props do
+		if key ~= "Parent" then
+			(p :: any)[key] = value
+		end
+	end
+	p.Parent = props.Parent or world
+	return p
+end
+
+-- 空中に浮かぶ文字（大きさはスタッド単位なので遠くからでも読める）
+local function label(adornee: BasePart, text: string, offsetY: number, width: number, height: number, color: Color3?)
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(width, 0, height, 0)
+	bb.StudsOffset = Vector3.new(0, offsetY, 0)
+	bb.LightInfluence = 0
+	bb.MaxDistance = 250
+	bb.Adornee = adornee
+	bb.Parent = adornee
+
+	local t = Instance.new("TextLabel")
+	t.Size = UDim2.fromScale(1, 1)
+	t.BackgroundTransparency = 1
+	t.Font = Enum.Font.GothamBold
+	t.TextScaled = true
+	t.TextColor3 = color or Color3.new(1, 1, 1)
+	t.TextStrokeTransparency = 0.2
+	t.Text = text
+	t.Parent = bb
+	return t
+end
+
+-- 横向きの円柱（Roblox の円柱は X 軸方向に伸びるので、立てるには Z 軸で 90 度回す）
+local function cylinder(position: Vector3, diameter: number, height: number, props: { [string]: any }): Part
+	props.Shape = Enum.PartType.Cylinder
+	props.Size = Vector3.new(height, diameter, diameter)
+	props.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.pi / 2)
+	return part(props)
+end
+
+local function buildHub(): (SpawnLocation, Vector3)
+	part({
+		Name = "HubGround",
+		Size = Vector3.new(HUB_HALF * 2, 4, HUB_HALF * 2),
+		Position = Vector3.new(0, -2, 0),
+		Color = Color3.fromRGB(95, 175, 85),
+		Material = Enum.Material.Grass,
+	})
+
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Anchored = true
+	spawn.Size = Vector3.new(12, 1, 12)
+	spawn.Position = Vector3.new(0, 0.5, 35)
+	spawn.Color = Color3.fromRGB(255, 220, 90)
+	spawn.Material = Enum.Material.SmoothPlastic
+	spawn.Duration = 0
+	spawn.Neutral = true
+	spawn.TopSurface = Enum.SurfaceType.Smooth
+	spawn.Parent = world
+
+	-- たまごを届ける巣
+	local nestPos = Vector3.new(0, 0, -50)
+	local nest = cylinder(nestPos + Vector3.new(0, 0.6, 0), 14, 1.2, {
+		Name = "Nest",
+		Color = Color3.fromRGB(215, 180, 90),
+		Material = Enum.Material.Fabric,
+		CanCollide = false,
+	})
+	for i = 1, 12 do
+		local a = i / 12 * math.pi * 2
+		part({
+			Name = "NestTwig",
+			Size = Vector3.new(4.5, 1.6, 1.6),
+			CFrame = CFrame.new(nestPos + Vector3.new(math.cos(a) * 7, 1, math.sin(a) * 7))
+				* CFrame.Angles(0, -a + math.pi / 2, 0),
+			Color = Color3.fromRGB(120, 80, 45),
+			Material = Enum.Material.Wood,
+		})
+	end
+	local glow = Instance.new("PointLight")
+	glow.Color = Color3.fromRGB(255, 230, 150)
+	glow.Range = 18
+	glow.Brightness = 2
+	glow.Parent = nest
+	label(nest, "🪺 たまごを ここへ とどけよう！", 7, 22, 3, Color3.fromRGB(255, 240, 160))
+
+	-- 道への入口のアーチ
+	local archZ = -HUB_HALF + 2
+	for _, x in { -16, 16 } do
+		part({
+			Name = "GatePillar",
+			Size = Vector3.new(3, 18, 3),
+			Position = Vector3.new(x, 9, archZ),
+			Color = Color3.fromRGB(240, 240, 240),
+		})
+	end
+	local beam = part({
+		Name = "GateBeam",
+		Size = Vector3.new(35, 3, 3),
+		Position = Vector3.new(0, 19.5, archZ),
+		Color = Color3.fromRGB(255, 120, 80),
+	})
+	label(beam, "🥚 たまごの道 →  遠いほど 強い敵と 高いごほうび", 4, 34, 4)
+
+	return spawn, nestPos
+end
+
+local function buildTreadmill(cfg, index: number, position: Vector3)
+	local folder = Instance.new("Model")
+	folder.Name = "Treadmill" .. index
+	folder.Parent = world
+
+	part({
+		Name = "Base",
+		Size = Vector3.new(12, 1, 20),
+		Position = position + Vector3.new(0, 0.5, 0),
+		Color = Color3.fromRGB(45, 45, 55),
+		Parent = folder,
+	})
+	local belt = part({
+		Name = "Belt",
+		Size = Vector3.new(8, 0.4, 18),
+		Position = position + Vector3.new(0, 1.2, 0),
+		Color = cfg.color:Lerp(Color3.new(0, 0, 0), 0.45),
+		Material = Enum.Material.DiamondPlate,
+		Parent = folder,
+	})
+	for _, x in { -4.6, 4.6 } do
+		part({
+			Name = "Rail",
+			Size = Vector3.new(1, 1, 18),
+			Position = position + Vector3.new(x, 3.4, 0),
+			Color = cfg.color,
+			Material = Enum.Material.Metal,
+			Parent = folder,
+		})
+		part({
+			Name = "RailPost",
+			Size = Vector3.new(0.6, 2.4, 0.6),
+			Position = position + Vector3.new(x, 2.2, -8),
+			Color = cfg.color,
+			Parent = folder,
+		})
+	end
+	-- 後ろの壁（ベルトに押し戻されても落ちない）と、上の看板
+	local back = part({
+		Name = "BackWall",
+		Size = Vector3.new(12, 7, 1),
+		Position = position + Vector3.new(0, 4, 10.5),
+		Color = cfg.color,
+		Material = Enum.Material.SmoothPlastic,
+		Parent = folder,
+	})
+	local reqText = if cfg.required > 0
+		then string.format("必要スピード %d", cfg.required)
+		else "だれでも使える"
+	label(back, string.format("%s\n+%d スピード/秒\n%s", cfg.name, cfg.gain, reqText), 7, 14, 6, cfg.color)
+
+	return {
+		belt = belt,
+		gain = cfg.gain,
+		required = cfg.required,
+		name = cfg.name,
+	}
+end
+
+local function buildShop(): ProximityPrompt
+	local origin = Vector3.new(-52, 0, 5)
+	local wallColor = Color3.fromRGB(255, 245, 225)
+	part({
+		Name = "ShopFloor",
+		Size = Vector3.new(22, 1, 26),
+		Position = origin + Vector3.new(0, 0.5, 0),
+		Color = Color3.fromRGB(160, 110, 70),
+		Material = Enum.Material.WoodPlanks,
+	})
+	part({
+		Name = "ShopWall",
+		Size = Vector3.new(1, 14, 26),
+		Position = origin + Vector3.new(-11, 7, 0),
+		Color = wallColor,
+	})
+	part({
+		Name = "ShopWall",
+		Size = Vector3.new(22, 14, 1),
+		Position = origin + Vector3.new(0, 7, 13),
+		Color = wallColor,
+	})
+	part({
+		Name = "ShopWall",
+		Size = Vector3.new(22, 14, 1),
+		Position = origin + Vector3.new(0, 7, -13),
+		Color = wallColor,
+	})
+	local roof = part({
+		Name = "ShopRoof",
+		Size = Vector3.new(26, 1.5, 30),
+		Position = origin + Vector3.new(1, 14.5, 0),
+		Color = Color3.fromRGB(230, 70, 70),
+	})
+	label(roof, "🛒 ショップ", 5, 18, 4, Color3.fromRGB(255, 230, 120))
+
+	local counter = part({
+		Name = "Counter",
+		Size = Vector3.new(4, 4, 16),
+		Position = origin + Vector3.new(2, 3, 0),
+		Color = Color3.fromRGB(120, 80, 50),
+		Material = Enum.Material.Wood,
+	})
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "ショップを開く"
+	prompt.ObjectText = "シューズ・ドラゴン"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = counter
+	return prompt
+end
+
+-- ゾーンの飾り（道の外側に並べる）
+local function decorate(kind: string, position: Vector3, rng: Random)
+	if kind == "tree" then
+		part({
+			Name = "Trunk",
+			Size = Vector3.new(2, 8, 2),
+			Position = position + Vector3.new(0, 4, 0),
+			Color = Color3.fromRGB(110, 75, 45),
+		})
+		part({
+			Name = "Leaves",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.one * rng:NextNumber(8, 11),
+			Position = position + Vector3.new(0, 10, 0),
+			Color = Color3.fromRGB(60, 150, 60),
+			Material = Enum.Material.Grass,
+		})
+	elseif kind == "cactus" then
+		local h = rng:NextNumber(7, 12)
+		local green = Color3.fromRGB(80, 150, 70)
+		part({
+			Name = "Cactus",
+			Size = Vector3.new(2.5, h, 2.5),
+			Position = position + Vector3.new(0, h / 2, 0),
+			Color = green,
+		})
+		part({
+			Name = "CactusArm",
+			Size = Vector3.new(4, 1.5, 1.5),
+			Position = position + Vector3.new(2, h * 0.55, 0),
+			Color = green,
+		})
+		part({
+			Name = "CactusArm",
+			Size = Vector3.new(1.5, 3, 1.5),
+			Position = position + Vector3.new(3.3, h * 0.55 + 1.5, 0),
+			Color = green,
+		})
+	elseif kind == "pine" then
+		part({
+			Name = "Trunk",
+			Size = Vector3.new(1.6, 4, 1.6),
+			Position = position + Vector3.new(0, 2, 0),
+			Color = Color3.fromRGB(100, 70, 45),
+		})
+		for i, w in { 9, 7, 4.5 } do
+			part({
+				Name = "PineLayer",
+				Size = Vector3.new(w, 3, w),
+				Position = position + Vector3.new(0, 2.5 + i * 2.6, 0),
+				Color = if i == 3 then Color3.fromRGB(245, 250, 255) else Color3.fromRGB(40, 110, 70),
+				Material = if i == 3 then Enum.Material.Snow else Enum.Material.Grass,
+			})
+		end
+	elseif kind == "rock" then
+		local s = rng:NextNumber(4, 9)
+		part({
+			Name = "Rock",
+			Size = Vector3.new(s, s * 0.8, s * 1.1),
+			CFrame = CFrame.new(position + Vector3.new(0, s * 0.3, 0))
+				* CFrame.Angles(0, rng:NextNumber(0, math.pi), 0.2),
+			Color = Color3.fromRGB(45, 35, 35),
+			Material = Enum.Material.Basalt,
+		})
+		if rng:NextNumber() < 0.5 then
+			cylinder(position + Vector3.new(rng:NextNumber(-4, 4), 0.05, s), rng:NextNumber(5, 9), 0.3, {
+				Name = "LavaPool",
+				Color = Color3.fromRGB(255, 100, 20),
+				Material = Enum.Material.Neon,
+				CanCollide = false,
+			})
+		end
+	elseif kind == "cloud" then
+		for _ = 1, 3 do
+			part({
+				Name = "Cloud",
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.one * rng:NextNumber(5, 9),
+				Position = position + Vector3.new(rng:NextNumber(-4, 4), rng:NextNumber(1, 4), rng:NextNumber(-4, 4)),
+				Color = Color3.new(1, 1, 1),
+				Material = Enum.Material.SmoothPlastic,
+				CanCollide = false,
+			})
+		end
+	end
+end
+
+local function buildZone(index: number, zone, zStart: number, zEnd: number, rng: Random)
+	local length = zEnd - zStart
+	local centerZ = -(zStart + zEnd) / 2
+
+	part({
+		Name = "ZoneGround" .. index,
+		Size = Vector3.new(TRACK_WIDTH, 4, length),
+		Position = Vector3.new(0, -2, centerZ),
+		Color = zone.ground,
+		Material = if zone.decor == "pine"
+			then Enum.Material.Snow
+			elseif zone.decor == "cactus" then Enum.Material.Sand
+			else Enum.Material.Grass,
+	})
+	part({
+		Name = "Road" .. index,
+		Size = Vector3.new(ROAD_WIDTH, 1, length),
+		Position = Vector3.new(0, -0.4, centerZ),
+		Color = zone.road,
+		Material = Enum.Material.Concrete,
+	})
+	-- 見えない横の壁（道から外に出ないように）
+	for _, x in { -TRACK_WIDTH / 2 - 1, TRACK_WIDTH / 2 + 1 } do
+		part({
+			Name = "SideWall",
+			Size = Vector3.new(2, 40, length),
+			Position = Vector3.new(x, 20, centerZ),
+			Transparency = 1,
+		})
+	end
+
+	-- ゾーンの入口のアーチ
+	for _, x in { -15, 15 } do
+		part({
+			Name = "ArchPillar",
+			Size = Vector3.new(3, 16, 3),
+			Position = Vector3.new(x, 8, -zStart - 2),
+			Color = zone.enemyColor,
+		})
+	end
+	local beam = part({
+		Name = "ArchBeam",
+		Size = Vector3.new(33, 3, 3),
+		Position = Vector3.new(0, 17.5, -zStart - 2),
+		Color = zone.enemyColor,
+	})
+	label(
+		beam,
+		string.format(
+			"ゾーン %d：%s\n敵の速さ %d ／ たまご %d コイン",
+			index,
+			zone.name,
+			zone.enemySpeed,
+			zone.reward
+		),
+		5,
+		30,
+		6
+	)
+
+	-- 飾り
+	local count = math.floor(length / 35)
+	for i = 1, count do
+		for _, side in { -1, 1 } do
+			local x = side * rng:NextNumber(ROAD_WIDTH / 2 + 8, TRACK_WIDTH / 2 - 6)
+			local z = -(zStart + (i - 0.5) * length / count + rng:NextNumber(-8, 8))
+			decorate(zone.decor, Vector3.new(x, 0, z), rng)
+		end
+	end
+
+	-- たまごの台
+	local eggPos = Vector3.new(0, 0, -zone.distance)
+	cylinder(eggPos + Vector3.new(0, 1, 0), 9, 2, {
+		Name = "EggPedestal",
+		Color = Color3.fromRGB(240, 240, 240),
+		Material = Enum.Material.Marble,
+	})
+	local egg = part({
+		Name = "Egg" .. index,
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.one * 4,
+		Position = eggPos + Vector3.new(0, 5, 0),
+		Color = zone.eggColor,
+		Material = Enum.Material.SmoothPlastic,
+		CanCollide = false,
+	})
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Scale = Vector3.new(1, 1.3, 1)
+	mesh.Parent = egg
+	local light = Instance.new("PointLight")
+	light.Color = zone.eggColor
+	light.Range = 14
+	light.Brightness = 3
+	light.Parent = egg
+	label(egg, string.format("🥚 %d コイン", zone.reward), 5, 12, 2.5, Color3.fromRGB(255, 235, 120))
+
+	-- 敵の出てくる場所（たまごを囲む）
+	local homes = {}
+	for j = 1, zone.enemies do
+		local offset
+		if zone.enemies == 1 then
+			offset = Vector3.new(0, 0, 14)
+		else
+			local a = (j / zone.enemies) * math.pi * 2
+			offset = Vector3.new(math.cos(a) * 15, 0, math.sin(a) * 15)
+		end
+		table.insert(homes, {
+			position = eggPos + offset,
+			zoneIndex = index,
+			boss = zone.boss == true and j == 1,
+		})
+	end
+
+	return { position = eggPos + Vector3.new(0, 3, 0), zoneIndex = index, part = egg }, homes
+end
+
+-- 道の横の距離表示
+local function buildDistanceMarkers(lastZ: number)
+	for d = 250, lastZ, 250 do
+		local post = part({
+			Name = "DistancePost",
+			Size = Vector3.new(1, 6, 1),
+			Position = Vector3.new(ROAD_WIDTH / 2 + 3, 3, -d),
+			Color = Color3.fromRGB(255, 255, 255),
+		})
+		label(post, string.format("%dm", d), 4, 6, 2, Color3.fromRGB(255, 255, 200))
+	end
+end
+
+function WorldBuilder.build()
+	world = Instance.new("Folder")
+	world.Name = "World"
+	world.Parent = workspace
+
+	local spawn, nestPos = buildHub()
+
+	local treadmills = {}
+	for i, cfg in Config.Treadmills do
+		local pos = Vector3.new(52, 0, 50 - (i - 1) * 28)
+		table.insert(treadmills, buildTreadmill(cfg, i, pos))
+	end
+
+	local shopPrompt = buildShop()
+
+	local rng = Random.new(20261108)
+	local eggs = {}
+	local enemyHomes = {}
+	local zStart = HUB_HALF
+	for i, zone in Config.Zones do
+		local zEnd = zone.distance + 60
+		local egg, homes = buildZone(i, zone, zStart, zEnd, rng)
+		table.insert(eggs, egg)
+		for _, h in homes do
+			table.insert(enemyHomes, h)
+		end
+		zStart = zEnd
+	end
+	-- 道の終わりの壁
+	part({
+		Name = "EndWall",
+		Size = Vector3.new(TRACK_WIDTH, 40, 2),
+		Position = Vector3.new(0, 20, -zStart - 1),
+		Color = Color3.fromRGB(255, 255, 255),
+		Transparency = 0.6,
+	})
+	buildDistanceMarkers(zStart)
+
+	return {
+		folder = world,
+		spawn = spawn,
+		nest = nestPos,
+		treadmills = treadmills,
+		eggs = eggs,
+		enemyHomes = enemyHomes,
+		shopPrompt = shopPrompt,
+	}
+end
+
+return WorldBuilder
