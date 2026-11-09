@@ -19,6 +19,7 @@ local hatchEgg = remotes:WaitForChild("HatchEgg") :: RemoteFunction
 local dailyAction = remotes:WaitForChild("DailyAction") :: RemoteFunction
 local useSkill = remotes:WaitForChild("UseSkill") :: RemoteFunction
 local weaponAction = remotes:WaitForChild("WeaponAction") :: RemoteFunction
+local screenFxEvent = remotes:WaitForChild("ScreenFx") :: RemoteEvent
 
 local player = Players.LocalPlayer
 local stats = player:WaitForChild("leaderstats")
@@ -296,6 +297,35 @@ trainGain.OnClientEvent:Connect(function(gain: number)
 	task.delay(0.9, function()
 		t:Destroy()
 	end)
+end)
+
+-- 必殺のとき：画面がピカッと光って、ゆれる（strength 1 = 自分の必殺、0.5 = 近くの人の必殺）
+local flashFrame = Instance.new("Frame")
+flashFrame.Size = UDim2.fromScale(1, 1)
+flashFrame.BackgroundTransparency = 1
+flashFrame.BorderSizePixel = 0
+flashFrame.ZIndex = 50
+flashFrame.Active = false
+flashFrame.Parent = gui
+local shakeUntil, shakePower = 0, 0
+screenFxEvent.OnClientEvent:Connect(function(color: Color3, strength: number)
+	flashFrame.BackgroundColor3 = color:Lerp(Color3.new(1, 1, 1), 0.5)
+	flashFrame.BackgroundTransparency = 1 - 0.45 * strength
+	TweenService:Create(flashFrame, TweenInfo.new(0.45), { BackgroundTransparency = 1 }):Play()
+	shakeUntil = os.clock() + 0.45
+	shakePower = 0.6 * strength
+end)
+RunService:BindToRenderStep("SkillShake", Enum.RenderPriority.Camera.Value + 1, function()
+	local left = shakeUntil - os.clock()
+	if left > 0 then
+		local camera = workspace.CurrentCamera
+		if not camera then
+			return
+		end
+		local k = shakePower * (left / 0.45)
+		camera.CFrame = camera.CFrame
+			* CFrame.new(math.random(-100, 100) / 100 * k, math.random(-100, 100) / 100 * k, 0)
+	end
 end)
 
 -- 敵にぶつかったら、はじき飛ばされる

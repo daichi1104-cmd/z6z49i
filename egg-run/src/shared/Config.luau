@@ -943,6 +943,7 @@ end
 Config.MythicWeapons = {
 	{
 		shape = "sword",
+		finisher = "オーロラ・ブレイク", -- 必殺わざの名前
 		name = "極光剣オーロラ",
 		passId = 0,
 		robux = 399,
@@ -951,6 +952,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "katana",
+		finisher = "紅蓮百花", -- 必殺わざの名前
 		name = "紅蓮刀ホムラ",
 		passId = 0,
 		robux = 399,
@@ -959,6 +961,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "dagger",
+		finisher = "雷影千手", -- 必殺わざの名前
 		name = "雷影短剣イナズマ",
 		passId = 0,
 		robux = 299,
@@ -967,6 +970,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "greatsword",
+		finisher = "メテオフォール", -- 必殺わざの名前
 		name = "星砕きの大剣",
 		passId = 0,
 		robux = 499,
@@ -975,6 +979,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "spear",
+		finisher = "流星一閃", -- 必殺わざの名前
 		name = "流星槍ミーティア",
 		passId = 0,
 		robux = 399,
@@ -983,6 +988,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "scythe",
+		finisher = "冥府の大旋風", -- 必殺わざの名前
 		name = "冥府の大鎌",
 		passId = 0,
 		robux = 499,
@@ -991,6 +997,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "axe",
+		finisher = "天地割り", -- 必殺わざの名前
 		name = "轟雷斧ライジン",
 		passId = 0,
 		robux = 399,
@@ -999,6 +1006,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "hammer",
+		finisher = "グランドクエイク", -- 必殺わざの名前
 		name = "大地鳴動ハンマー",
 		passId = 0,
 		robux = 499,
@@ -1007,6 +1015,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "bow",
+		finisher = "虹の流星雨", -- 必殺わざの名前
 		name = "虹光の神弓",
 		passId = 0,
 		robux = 399,
@@ -1015,6 +1024,7 @@ Config.MythicWeapons = {
 	},
 	{
 		shape = "staff",
+		finisher = "ギャラクシー・ノヴァ", -- 必殺わざの名前
 		name = "銀河の杖",
 		passId = 0,
 		robux = 499,

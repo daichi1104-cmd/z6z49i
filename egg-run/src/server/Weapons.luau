@@ -672,37 +672,247 @@ local function shoot(player: Player, weapon, from: Vector3, target, mult: number
 	end)
 end
 
--- 神話の武器の必殺：光の柱と、2重の輪が広がり、まわりの敵全部に大ダメージ。敵には空から雷が落ちる
+-- 空から落ちる、ぎざぎざの雷
+local function zigzagBolt(to: Vector3, height: number, color: Color3, width: number)
+	local points = { to + Vector3.new(math.random(-6, 6), height, math.random(-6, 6)) }
+	for i = 1, 4 do
+		local t = i / 5
+		table.insert(
+			points,
+			to:Lerp(points[1], 1 - t) + Vector3.new(math.random(-30, 30) / 10, 0, math.random(-30, 30) / 10)
+		)
+	end
+	table.insert(points, to)
+	for i = 1, #points - 1 do
+		local a, b = points[i], points[i + 1]
+		local seg = fx(v(width, width, (b - a).Magnitude), CFrame.lookAt((a + b) / 2, b), color)
+		TweenService:Create(seg, TweenInfo.new(0.35), { Transparency = 1, Size = v(0.05, 0.05, (b - a).Magnitude) })
+			:Play()
+		Debris:AddItem(seg, 0.4)
+	end
+	-- 落ちた所で光がはじける
+	local flash = fx(v(2, 2, 2), CFrame.new(to), Color3.new(1, 1, 1), Enum.PartType.Ball)
+	TweenService:Create(flash, TweenInfo.new(0.3), { Size = v(9, 9, 9), Transparency = 1 }):Play()
+	Debris:AddItem(flash, 0.35)
+end
+
+-- 光の粒を、いっきに はじけさせる
+local function sparkBurst(at: Vector3, c1: Color3, c2: Color3, count: number, speed: number)
+	local anchor = fx(v(0.2, 0.2, 0.2), CFrame.new(at), c1)
+	anchor.Transparency = 1
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Color = ColorSequence.new(c1, c2)
+	emitter.LightEmission = 1
+	emitter.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0) })
+	emitter.Transparency = NumberSequence.new(0, 1)
+	emitter.Lifetime = NumberRange.new(0.6, 1.2)
+	emitter.Speed = NumberRange.new(speed * 0.5, speed)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Drag = 3
+	emitter.Rate = 0
+	emitter.Parent = anchor
+	emitter:Emit(count)
+	Debris:AddItem(anchor, 1.5)
+end
+
+-- 神話の武器の必殺（3段階）
+--   1. ため：足もとに魔法陣、光の玉がうずを巻いて集まる、頭の上に必殺わざの名前
+--   2. 大爆発：光の球がふくらむ、3重の輪、中心と まわり8本の光の柱、雷、光の粒、画面がゆれて光る
+--   3. 余韻：かけらが飛びちり、魔法陣が消えていく
 local swingCount: { [Player]: number } = {}
+local screenFx: RemoteEvent? = nil
+function Weapons.setScreenFx(remote: RemoteEvent)
+	screenFx = remote
+end
+
+local function finisherName(origin: Vector3, m)
+	local anchor = fx(v(0.2, 0.2, 0.2), CFrame.new(origin + Vector3.new(0, 6, 0)), m.color)
+	anchor.Transparency = 1
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(60, 20)
+	bb.AlwaysOnTop = true
+	bb.LightInfluence = 0
+	bb.MaxDistance = 250
+	bb.Parent = anchor
+	local t = Instance.new("TextLabel")
+	t.Size = UDim2.fromScale(1, 1)
+	t.BackgroundTransparency = 1
+	t.Font = Enum.Font.GothamBlack
+	t.TextScaled = true
+	t.TextColor3 = Color3.new(1, 1, 1)
+	t.TextStrokeColor3 = m.color
+	t.TextStrokeTransparency = 0
+	t.Text = "必殺！" .. (m.finisher or "")
+	t.Parent = bb
+	local grad = Instance.new("UIGradient")
+	grad.Color = ColorSequence.new(m.color2, m.color)
+	grad.Parent = t
+	-- ぽんっと大きくなって、上へ消える
+	TweenService:Create(bb, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Size = UDim2.fromOffset(340, 64) }):Play()
+	task.delay(0.9, function()
+		TweenService:Create(bb, TweenInfo.new(0.5), { StudsOffset = Vector3.new(0, 4, 0) }):Play()
+		TweenService:Create(t, TweenInfo.new(0.5), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	end)
+	Debris:AddItem(anchor, 1.5)
+end
+
 local function mythicBurst(player: Player, weapon, origin: Vector3)
 	local m = weapon.mythic
 	local cfg = Config.Mythic
-	local ground = origin - Vector3.new(0, 2.6, 0)
-	shockwave(origin, cfg.burstRadius, m.color)
-	task.delay(0.12, function()
-		shockwave(origin, cfg.burstRadius * 0.7, m.color2)
-	end)
-	local pillar = fx(
-		v(60, 6, 6),
-		CFrame.new(ground + Vector3.new(0, 30, 0)) * CFrame.Angles(0, 0, math.pi / 2),
-		m.color,
-		Enum.PartType.Cylinder
-	)
-	pillar.Transparency = 0.2
-	TweenService:Create(pillar, TweenInfo.new(0.5), { Size = v(60, 14, 14), Transparency = 1 }):Play()
-	Debris:AddItem(pillar, 0.6)
-	local light = Instance.new("PointLight")
-	light.Color = m.color
-	light.Range = 40
-	light.Brightness = 5
-	light.Parent = pillar
-	for _, e in Enemies.findInRange(origin, cfg.burstRadius + 6) do
-		local at = Enemies.centerOf(e)
-		local bolt = fx(v(0.5, 40, 0.5), CFrame.new(at + Vector3.new(0, 20, 0)), m.color2)
-		TweenService:Create(bolt, TweenInfo.new(0.3), { Transparency = 1, Size = v(0.1, 40, 0.1) }):Play()
-		Debris:AddItem(bolt, 0.35)
-		hit(player, weapon, e, cfg.burstMult)
+	local R = cfg.burstRadius
+	local ground = origin - Vector3.new(0, 2.8, 0)
+	finisherName(origin, m)
+
+	-- 1. ため：魔法陣（円と、回る光のもよう）
+	local circle =
+		fx(v(0.2, 2, 2), CFrame.new(ground) * CFrame.Angles(0, 0, math.pi / 2), m.color, Enum.PartType.Cylinder)
+	circle.Transparency = 0.55
+	TweenService:Create(circle, TweenInfo.new(0.25, Enum.EasingStyle.Quad), { Size = v(0.2, R * 2, R * 2) }):Play()
+	local runes = {}
+	for i = 1, 12 do
+		local a = i / 12 * math.pi * 2
+		local rune = fx(
+			v(R * 0.22, 0.25, 0.6),
+			CFrame.new(ground + Vector3.new(math.cos(a) * R * 0.8, 0.15, math.sin(a) * R * 0.8))
+				* CFrame.Angles(0, -a, 0),
+			m.color2
+		)
+		rune.Transparency = 0.1
+		table.insert(runes, { part = rune, a = a })
 	end
+	task.spawn(function()
+		local t0 = os.clock()
+		while os.clock() - t0 < 1.1 do
+			local spin = (os.clock() - t0) * 3
+			for _, r in runes do
+				local a = r.a + spin
+				r.part.CFrame = CFrame.new(ground + Vector3.new(math.cos(a) * R * 0.8, 0.15, math.sin(a) * R * 0.8))
+					* CFrame.Angles(0, -a, 0)
+			end
+			task.wait(0.03)
+		end
+		for _, r in runes do
+			r.part:Destroy()
+		end
+	end)
+	-- 光の玉が、うずを巻いて体に集まる
+	for i = 1, 8 do
+		local a = i / 8 * math.pi * 2
+		local orb = fx(
+			v(1.4, 1.4, 1.4),
+			CFrame.new(origin + Vector3.new(math.cos(a) * 14, 8, math.sin(a) * 14)),
+			if i % 2 == 0 then m.color else m.color2,
+			Enum.PartType.Ball
+		)
+		TweenService:Create(orb, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			CFrame = CFrame.new(origin + Vector3.new(0, 1, 0)),
+			Size = v(0.4, 0.4, 0.4),
+		}):Play()
+		Debris:AddItem(orb, 0.27)
+	end
+
+	-- 2. 大爆発
+	task.delay(0.25, function()
+		-- 画面がゆれて光る（近くにいる人みんな）
+		if screenFx then
+			for _, other in game:GetService("Players"):GetPlayers() do
+				local root = other.Character and other.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root and (root.Position - origin).Magnitude < 120 then
+					screenFx:FireClient(other, m.color, if other == player then 1 else 0.5)
+				end
+			end
+		end
+		-- ふくらむ光の球
+		local sphere = fx(v(4, 4, 4), CFrame.new(origin), m.color, Enum.PartType.Ball)
+		sphere.Material = Enum.Material.ForceField
+		TweenService:Create(sphere, TweenInfo.new(0.45, Enum.EasingStyle.Quad), { Size = v(R * 2.2, R * 2.2, R * 2.2) })
+			:Play()
+		task.delay(0.3, function()
+			TweenService:Create(sphere, TweenInfo.new(0.35), { Transparency = 1 }):Play()
+		end)
+		Debris:AddItem(sphere, 0.7)
+		local core = fx(v(3, 3, 3), CFrame.new(origin), Color3.new(1, 1, 1), Enum.PartType.Ball)
+		TweenService:Create(core, TweenInfo.new(0.3), { Size = v(R, R, R), Transparency = 1 }):Play()
+		Debris:AddItem(core, 0.35)
+		local light = Instance.new("PointLight")
+		light.Color = m.color
+		light.Range = 60
+		light.Brightness = 8
+		light.Parent = core
+		-- 3重の輪
+		shockwave(origin, R * 1.2, m.color)
+		task.delay(0.1, function()
+			shockwave(origin, R, m.color2)
+		end)
+		task.delay(0.2, function()
+			shockwave(origin, R * 0.8, Color3.new(1, 1, 1))
+		end)
+		-- 中心の大きな光の柱
+		local pillar = fx(
+			v(200, 4, 4),
+			CFrame.new(ground + Vector3.new(0, 100, 0)) * CFrame.Angles(0, 0, math.pi / 2),
+			m.color,
+			Enum.PartType.Cylinder
+		)
+		pillar.Transparency = 0.1
+		TweenService
+			:Create(pillar, TweenInfo.new(0.6, Enum.EasingStyle.Quad), { Size = v(200, 22, 22), Transparency = 1 })
+			:Play()
+		Debris:AddItem(pillar, 0.7)
+		-- まわりに 8本、順番に光の柱がふき上がる
+		for i = 1, 8 do
+			task.delay(i * 0.035, function()
+				local a = i / 8 * math.pi * 2
+				local at = ground + Vector3.new(math.cos(a) * R * 0.75, 0, math.sin(a) * R * 0.75)
+				local col = fx(
+					v(2, 3, 3),
+					CFrame.new(at) * CFrame.Angles(0, 0, math.pi / 2),
+					if i % 2 == 0 then m.color else m.color2,
+					Enum.PartType.Cylinder
+				)
+				col.Transparency = 0.1
+				TweenService:Create(col, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {
+					Size = v(50, 4.5, 4.5),
+					CFrame = CFrame.new(at + Vector3.new(0, 25, 0)) * CFrame.Angles(0, 0, math.pi / 2),
+				}):Play()
+				task.delay(0.25, function()
+					TweenService:Create(col, TweenInfo.new(0.3), { Transparency = 1, Size = v(50, 0.5, 0.5) }):Play()
+				end)
+				Debris:AddItem(col, 0.6)
+			end)
+		end
+		-- 光の粒がはじける
+		sparkBurst(origin, m.color, m.color2, 90, 60)
+		sparkBurst(origin + Vector3.new(0, 4, 0), Color3.new(1, 1, 1), m.color2, 40, 35)
+		-- まわりにも雷（敵がいなくても）
+		for _ = 1, 6 do
+			local a = math.random() * math.pi * 2
+			local d = math.random() * R
+			zigzagBolt(ground + Vector3.new(math.cos(a) * d, 0, math.sin(a) * d), 50, m.color2, 0.6)
+		end
+		-- 敵には雷が落ちて、大ダメージ
+		for _, e in Enemies.findInRange(origin, R + 6) do
+			local at = Enemies.centerOf(e)
+			zigzagBolt(at, 55, Color3.new(1, 1, 1), 0.9)
+			zigzagBolt(at, 55, m.color, 0.5)
+			hit(player, weapon, e, cfg.burstMult)
+		end
+
+		-- 3. 余韻：かけらが回りながら飛びちる
+		for i = 1, 16 do
+			local a = i / 16 * math.pi * 2 + math.random() * 0.3
+			local shard = fx(v(0.8, 0.8, 1.6), CFrame.new(origin), if i % 2 == 0 then m.color else m.color2)
+			local out = origin + Vector3.new(math.cos(a) * R * 0.9, math.random(4, 14), math.sin(a) * R * 0.9)
+			TweenService:Create(shard, TweenInfo.new(0.7, Enum.EasingStyle.Quad), {
+				CFrame = CFrame.new(out) * CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6),
+				Transparency = 1,
+				Size = v(0.2, 0.2, 0.4),
+			}):Play()
+			Debris:AddItem(shard, 0.75)
+		end
+		TweenService:Create(circle, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+		Debris:AddItem(circle, 0.9)
+	end)
 end
 
 -- 近くの敵のうち、正面から arc の角度の中で、range にとどくもの

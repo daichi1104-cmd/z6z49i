@@ -38,6 +38,8 @@ local dragonAction = remote("RemoteFunction", "DragonAction") :: RemoteFunction
 local dailyAction = remote("RemoteFunction", "DailyAction") :: RemoteFunction
 local useSkill = remote("RemoteFunction", "UseSkill") :: RemoteFunction
 local weaponAction = remote("RemoteFunction", "WeaponAction") :: RemoteFunction
+local screenFx = remote("RemoteEvent", "ScreenFx") :: RemoteEvent
+Weapons.setScreenFx(screenFx)
 
 -- DataStore は Studio で API アクセスが無効だと失敗するので pcall で守る
 local store
