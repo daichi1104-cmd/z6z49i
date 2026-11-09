@@ -1385,25 +1385,37 @@ local function renderWeapons()
 			local detail =
 				string.format("⚔️%s ／ %s秒 ／ とどく %d", short(w.damage), tostring(w.cooldown), w.range)
 			local label, color, enabled
+			-- 神話の武器（Robux）：ためし用の無料中は無料、パスがあれば Robux、なければ準備中
+			local action = if has then "equip" else "buy"
 			if isOn then
 				label, color, enabled = "持っている", GRAY, false
 			elseif has then
 				label, color, enabled = "持つ", BLUE, true
+			elseif w.mythic and not Config.FreeWeaponsForTest then
+				if w.passId > 0 then
+					label, color, enabled, action =
+						string.format("R$ %d", w.robux), Color3.fromRGB(0, 170, 90), true, "robux"
+				else
+					label, color, enabled = "準備中", GRAY, false
+				end
 			else
 				label = if w.price == 0 then "無料でもらう" else "🪙 " .. short(w.price)
 				color = if coinValue.Value >= w.price then GREEN else Color3.fromRGB(150, 90, 60)
 				enabled = true
 			end
+			local stars = if w.mythic then "🌈神話" else string.rep("★", w.rarity)
 			row(
 				si * 10 + w.rarity,
-				string.format("%s%s %s", if isOn then "✋" else "", string.rep("★", w.rarity), w.name),
+				string.format("%s%s %s", if isOn then "✋" else "", stars, w.name),
 				detail,
 				label,
 				color,
 				enabled,
 				function()
-					local ok, msg = weaponAction:InvokeServer(if has then "equip" else "buy", w.id)
-					toast(msg, ok)
+					local ok, msg = weaponAction:InvokeServer(action, w.id)
+					if msg ~= "" then
+						toast(msg, ok)
+					end
 				end,
 				rarity.color
 			)

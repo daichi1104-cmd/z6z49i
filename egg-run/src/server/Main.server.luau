@@ -4,6 +4,7 @@
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -459,6 +460,9 @@ local function equipTeam(player: Player)
 	end
 end
 
+-- 神話の武器のゲームパスを持っているか しらべる（下の「武器」のところで中身を書く）
+local checkPasses: (Player) -> ()
+
 -- 手に持つ武器をわたす（前の武器は消す）。持たせたら、すぐ手に持つ
 local function giveWeapon(player: Player)
 	local d = data[player]
@@ -666,6 +670,7 @@ Players.PlayerAdded:Connect(function(player)
 	Progress.refreshDaily(d)
 	checkProgress(player)
 	syncStats(player)
+	task.spawn(checkPasses, player)
 
 	local function onCharacter(character: Model)
 		dropEgg(player)
@@ -1241,6 +1246,20 @@ weaponAction.OnServerInvoke = function(player: Player, action: any, id: any)
 		return false, "その武器はありません"
 	end
 	local msg
+	-- 神話の武器：Robux のゲームパスを買う画面を出す（買えたら PromptGamePassPurchaseFinished でわたす）
+	if action == "robux" then
+		if not weapon.mythic or d.weapons[weapon.id] then
+			return false, "エラー"
+		end
+		if weapon.passId <= 0 then
+			return false, "この武器は まだ準備中です"
+		end
+		MarketplaceService:PromptGamePassPurchase(player, weapon.passId)
+		return true, ""
+	end
+	if action == "buy" and weapon.mythic and not d.weapons[weapon.id] and not Config.FreeWeaponsForTest then
+		return false, "この武器は Robux で 手に入るよ"
+	end
 	if action == "buy" then
 		if d.weapons[weapon.id] then
 			return false, "もう持っています"
@@ -1267,6 +1286,58 @@ weaponAction.OnServerInvoke = function(player: Player, action: any, id: any)
 	save(player)
 	return true, msg
 end
+
+-- 神話の武器：ゲームパスを持っていたら わたす（入ったとき・買ったとき）
+local function passWeapon(passId: number)
+	for _, w in Config.Weapons do
+		if w.mythic and w.passId == passId and passId > 0 then
+			return w
+		end
+	end
+	return nil
+end
+
+checkPasses = function(player: Player)
+	local d = data[player]
+	if not d then
+		return
+	end
+	local changed = false
+	for _, w in Config.Weapons do
+		if w.mythic and w.passId > 0 and not d.weapons[w.id] then
+			local ok, owns = pcall(function()
+				return MarketplaceService:UserOwnsGamePassAsync(player.UserId, w.passId)
+			end)
+			if ok and owns then
+				d.weapons[w.id] = true
+				changed = true
+			end
+		end
+	end
+	if changed then
+		syncStats(player)
+		save(player)
+	end
+end
+
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player: Player, passId: number, purchased: boolean)
+	local d = data[player]
+	local w = passWeapon(passId)
+	if not purchased or not d or not w then
+		return
+	end
+	d.weapons[w.id] = true
+	d.weapon = w.id
+	giveWeapon(player)
+	notify:FireClient(
+		player,
+		string.format("🌈 神話の武器「%s」を手に入れた！ ありがとう！", w.name),
+		true
+	)
+	checkProgress(player)
+	syncStats(player)
+	save(player)
+end)
 
 --------------------------------------------------------------------------------
 -- わざ：連れているドラゴンのうち、レベル 5 以上の全員が使う

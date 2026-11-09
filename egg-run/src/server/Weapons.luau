@@ -70,6 +70,31 @@ local LOOKS: { Look } = {
 	},
 }
 
+-- ★6 神話の武器は、武器ごとの色で作る
+local function lookOf(weapon): Look
+	local m = weapon.mythic
+	if not m then
+		return LOOKS[weapon.rarity]
+	end
+	return {
+		blade = m.color,
+		bladeMat = Enum.Material.Neon, -- 刃そのものが光る
+		grip = Color3.fromRGB(20, 18, 30),
+		trim = Color3.fromRGB(255, 215, 90),
+		trimMat = Enum.Material.Metal,
+		glow = m.color2,
+	}
+end
+
+-- 光の色（ふった跡・矢・爆発）
+local function colorOf(weapon): Color3
+	local look = lookOf(weapon)
+	if weapon.mythic then
+		return weapon.mythic.color
+	end
+	return look.glow or look.blade
+end
+
 --------------------------------------------------------------------------------
 -- 模型づくり
 --------------------------------------------------------------------------------
@@ -392,9 +417,23 @@ function Weapons.build(weapon): Tool
 	handle.CastShadow = false
 	handle.Parent = tool
 
-	local b: Builder = { tool = tool, handle = handle, look = LOOKS[weapon.rarity], rarity = weapon.rarity, tips = {} }
+	local b: Builder = { tool = tool, handle = handle, look = lookOf(weapon), rarity = weapon.rarity, tips = {} }
 	local build = SHAPES[weapon.shape] or SHAPES.sword
 	build(b)
+
+	-- 神話の武器は ひとまわり大きい
+	if weapon.mythic then
+		local k = 1.3
+		for _, p in tool:GetChildren() do
+			if p:IsA("BasePart") then
+				p.Size *= k
+				p.CFrame = CFrame.new(p.CFrame.Position * k) * p.CFrame.Rotation
+			end
+		end
+		for i, tip in b.tips do
+			b.tips[i] = tip * k
+		end
+	end
 
 	-- Handle の位置は にぎる所（原点）にそろえ、ほかの部品を溶接する
 	local offset = handle.CFrame
@@ -420,6 +459,48 @@ function Weapons.build(weapon): Tool
 		light.Range = 6 + weapon.rarity
 		light.Brightness = 1
 		light.Parent = handle
+	end
+	if weapon.mythic then
+		local m = weapon.mythic
+		-- 強い光と、2色のキラキラ
+		local light = handle:FindFirstChildOfClass("PointLight")
+		if light then
+			light.Color = m.color
+			light.Range = 18
+			light.Brightness = 2.5
+		end
+		local sparkles = Instance.new("Sparkles")
+		sparkles.SparkleColor = m.color2
+		sparkles.Parent = handle
+		-- ふると、刃の通った所に光の軌跡が残る
+		local tip = b.tips[1] or v(0, 0, 4)
+		local a0 = Instance.new("Attachment")
+		a0.Position = offset:PointToObjectSpace(v(0, 0, 0.8))
+		a0.Parent = handle
+		local a1 = Instance.new("Attachment")
+		a1.Position = offset:PointToObjectSpace(tip)
+		a1.Parent = handle
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = a0
+		trail.Attachment1 = a1
+		trail.Color = ColorSequence.new(m.color, m.color2)
+		trail.LightEmission = 1
+		trail.Lifetime = 0.35
+		trail.Transparency = NumberSequence.new(0.1, 1)
+		trail.FaceCamera = true
+		trail.Parent = handle
+		-- にぎる所から立ちのぼる光
+		local aura = Instance.new("ParticleEmitter")
+		aura.Color = ColorSequence.new(m.color, m.color2)
+		aura.LightEmission = 1
+		aura.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0) })
+		aura.Transparency = NumberSequence.new(0.2, 1)
+		aura.Lifetime = NumberRange.new(0.6, 1.2)
+		aura.Rate = 30
+		aura.Speed = NumberRange.new(1, 3)
+		aura.SpreadAngle = Vector2.new(180, 180)
+		aura.Acceleration = Vector3.new(0, 4, 0)
+		aura.Parent = handle
 	end
 	if weapon.rarity >= 5 then
 		for _, tip in b.tips do
@@ -556,7 +637,7 @@ end
 
 -- 遠くへ飛ばす（弓の矢・杖の魔法の玉）
 local function shoot(player: Player, weapon, from: Vector3, target, mult: number)
-	local color = LOOKS[weapon.rarity].glow or LOOKS[weapon.rarity].blade
+	local color = colorOf(weapon)
 	local to = Enemies.centerOf(target)
 	local isArrow = weapon.shape == "bow"
 	local p = if isArrow
@@ -589,6 +670,39 @@ local function shoot(player: Player, weapon, from: Vector3, target, mult: number
 			end
 		end
 	end)
+end
+
+-- 神話の武器の必殺：光の柱と、2重の輪が広がり、まわりの敵全部に大ダメージ。敵には空から雷が落ちる
+local swingCount: { [Player]: number } = {}
+local function mythicBurst(player: Player, weapon, origin: Vector3)
+	local m = weapon.mythic
+	local cfg = Config.Mythic
+	local ground = origin - Vector3.new(0, 2.6, 0)
+	shockwave(origin, cfg.burstRadius, m.color)
+	task.delay(0.12, function()
+		shockwave(origin, cfg.burstRadius * 0.7, m.color2)
+	end)
+	local pillar = fx(
+		v(60, 6, 6),
+		CFrame.new(ground + Vector3.new(0, 30, 0)) * CFrame.Angles(0, 0, math.pi / 2),
+		m.color,
+		Enum.PartType.Cylinder
+	)
+	pillar.Transparency = 0.2
+	TweenService:Create(pillar, TweenInfo.new(0.5), { Size = v(60, 14, 14), Transparency = 1 }):Play()
+	Debris:AddItem(pillar, 0.6)
+	local light = Instance.new("PointLight")
+	light.Color = m.color
+	light.Range = 40
+	light.Brightness = 5
+	light.Parent = pillar
+	for _, e in Enemies.findInRange(origin, cfg.burstRadius + 6) do
+		local at = Enemies.centerOf(e)
+		local bolt = fx(v(0.5, 40, 0.5), CFrame.new(at + Vector3.new(0, 20, 0)), m.color2)
+		TweenService:Create(bolt, TweenInfo.new(0.3), { Transparency = 1, Size = v(0.1, 40, 0.1) }):Play()
+		Debris:AddItem(bolt, 0.35)
+		hit(player, weapon, e, cfg.burstMult)
+	end
 end
 
 -- 近くの敵のうち、正面から arc の角度の中で、range にとどくもの
@@ -637,8 +751,16 @@ function Weapons.swing(player: Player, tool: Tool, weapon, mult: number?)
 	local look = root.CFrame.LookVector
 	local facing = Vector3.new(look.X, 0, look.Z)
 	facing = if facing.Magnitude > 0.01 then facing.Unit else Vector3.new(0, 0, -1)
-	local color = LOOKS[weapon.rarity].glow or LOOKS[weapon.rarity].blade
+	local color = colorOf(weapon)
 	local origin = root.Position
+
+	-- 神話の武器は、3回に1回 必殺
+	if weapon.mythic then
+		swingCount[player] = (swingCount[player] or 0) + 1
+		if swingCount[player] % Config.Mythic.burstEvery == 0 then
+			mythicBurst(player, weapon, origin)
+		end
+	end
 
 	if weapon.ranged then
 		-- 正面の近くにいる敵をねらう（いなければ、届く範囲で一番近い敵）
@@ -668,6 +790,7 @@ end
 
 function Weapons.forget(player: Player)
 	lastSwing[player] = nil
+	swingCount[player] = nil
 end
 
 return Weapons

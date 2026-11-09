@@ -323,6 +323,7 @@ Config.Rarities = {
 	{ name = "スーパーレア", color = Color3.fromRGB(195, 100, 255) },
 	{ name = "ウルトラレア", color = Color3.fromRGB(255, 175, 40) },
 	{ name = "レジェンド", color = Color3.fromRGB(255, 80, 90) },
+	{ name = "神話", color = Color3.fromRGB(255, 70, 220) }, -- 課金の武器だけ
 }
 
 -- ゾーンごとの、レア度の出やすさ（ノーマル, レア, スーパーレア, ウルトラレア, レジェンド の重み）
@@ -932,6 +933,127 @@ do
 					else math.floor(tier.price * WEAPON_PRICE[s.shape] / 10 + 0.5) * 10,
 			})
 		end
+	end
+end
+
+-- ★6 神話の武器（課金＝Robux のゲームパスでだけ手に入る。形ごとに 1本ずつ）
+-- passId：Roblox で作ったゲームパスの番号（0 のあいだは「準備中」。ためし用の無料中は、無料でもらえる）
+-- robux：画面に出す ねだんの目安（本当のねだんは Roblox のゲームパスの設定で決まる）
+-- color：光の色、color2：2つめの色（光の粒や軌跡に使う）
+Config.MythicWeapons = {
+	{
+		shape = "sword",
+		name = "極光剣オーロラ",
+		passId = 0,
+		robux = 399,
+		color = Color3.fromRGB(80, 255, 200),
+		color2 = Color3.fromRGB(150, 120, 255),
+	},
+	{
+		shape = "katana",
+		name = "紅蓮刀ホムラ",
+		passId = 0,
+		robux = 399,
+		color = Color3.fromRGB(255, 70, 40),
+		color2 = Color3.fromRGB(255, 200, 60),
+	},
+	{
+		shape = "dagger",
+		name = "雷影短剣イナズマ",
+		passId = 0,
+		robux = 299,
+		color = Color3.fromRGB(255, 240, 80),
+		color2 = Color3.fromRGB(120, 200, 255),
+	},
+	{
+		shape = "greatsword",
+		name = "星砕きの大剣",
+		passId = 0,
+		robux = 499,
+		color = Color3.fromRGB(120, 140, 255),
+		color2 = Color3.fromRGB(255, 255, 255),
+	},
+	{
+		shape = "spear",
+		name = "流星槍ミーティア",
+		passId = 0,
+		robux = 399,
+		color = Color3.fromRGB(255, 160, 60),
+		color2 = Color3.fromRGB(255, 255, 200),
+	},
+	{
+		shape = "scythe",
+		name = "冥府の大鎌",
+		passId = 0,
+		robux = 499,
+		color = Color3.fromRGB(170, 60, 255),
+		color2 = Color3.fromRGB(60, 255, 120),
+	},
+	{
+		shape = "axe",
+		name = "轟雷斧ライジン",
+		passId = 0,
+		robux = 399,
+		color = Color3.fromRGB(90, 200, 255),
+		color2 = Color3.fromRGB(255, 255, 140),
+	},
+	{
+		shape = "hammer",
+		name = "大地鳴動ハンマー",
+		passId = 0,
+		robux = 499,
+		color = Color3.fromRGB(255, 130, 40),
+		color2 = Color3.fromRGB(120, 255, 80),
+	},
+	{
+		shape = "bow",
+		name = "虹光の神弓",
+		passId = 0,
+		robux = 399,
+		color = Color3.fromRGB(255, 90, 200),
+		color2 = Color3.fromRGB(90, 230, 255),
+	},
+	{
+		shape = "staff",
+		name = "銀河の杖",
+		passId = 0,
+		robux = 499,
+		color = Color3.fromRGB(110, 90, 255),
+		color2 = Color3.fromRGB(255, 120, 230),
+	},
+}
+-- 神話の武器の強さ：基本のこうげき力（形の倍率をかける）、とどく距離の倍率、
+-- 何回ふるごとに「必殺」（まわり全部に大ダメージ）が出るか、必殺の半径と倍率
+Config.Mythic = { damage = 1600, rangeMult = 1.3, burstEvery = 3, burstRadius = 26, burstMult = 3 }
+
+do
+	for i, m in Config.MythicWeapons do
+		local s
+		for _, shape in Config.WeaponShapes do
+			if shape.shape == m.shape then
+				s = shape
+			end
+		end
+		table.insert(Config.Weapons, {
+			id = string.format("M%02d", i),
+			name = m.name,
+			shape = m.shape,
+			rarity = 6,
+			mythic = m,
+			damage = math.floor(Config.Mythic.damage * s.power + 0.5),
+			cooldown = s.cooldown,
+			range = math.floor(s.range * Config.Mythic.rangeMult + 0.5),
+			arc = s.arc,
+			crit = s.crit,
+			stun = s.stun,
+			ranged = s.ranged,
+			splash = if s.splash then s.splash * 1.5 else nil,
+			lunge = s.lunge,
+			desc = s.desc .. "。3回に1回 必殺の大爆発",
+			price = 0,
+			passId = m.passId,
+			robux = m.robux,
+		})
 	end
 end
 
