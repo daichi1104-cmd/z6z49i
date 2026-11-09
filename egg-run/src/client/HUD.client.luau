@@ -1390,7 +1390,7 @@ local function renderWeapons()
 			elseif has then
 				label, color, enabled = "持つ", BLUE, true
 			else
-				label = "🪙 " .. short(w.price)
+				label = if w.price == 0 then "無料でもらう" else "🪙 " .. short(w.price)
 				color = if coinValue.Value >= w.price then GREEN else Color3.fromRGB(150, 90, 60)
 				enabled = true
 			end

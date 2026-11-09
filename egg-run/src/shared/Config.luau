@@ -903,6 +903,9 @@ local WEAPON_PRICE = {
 	staff = 1.3,
 }
 
+-- ためし用：true のあいだは、武器が全部 無料（ためし終わったら false にもどす）
+Config.FreeWeaponsForTest = true
+
 Config.Weapons = {}
 do
 	local n = 0
@@ -924,7 +927,9 @@ do
 				splash = s.splash,
 				lunge = s.lunge,
 				desc = s.desc,
-				price = math.floor(tier.price * WEAPON_PRICE[s.shape] / 10 + 0.5) * 10,
+				price = if Config.FreeWeaponsForTest
+					then 0
+					else math.floor(tier.price * WEAPON_PRICE[s.shape] / 10 + 0.5) * 10,
 			})
 		end
 	end
