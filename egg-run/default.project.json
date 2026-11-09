@@ -21,7 +21,7 @@
     },
     "Lighting": {
       "$properties": {
-        "ClockTime": 13.5,
+        "ClockTime": 14.5,
         "Brightness": 2.5,
         "GlobalShadows": true,
         "Technology": "Future",
@@ -37,9 +37,9 @@
       "Atmosphere": {
         "$className": "Atmosphere",
         "$properties": {
-          "Density": 0.28,
+          "Density": 0.32,
           "Offset": 0.2,
-          "Haze": 1.2,
+          "Haze": 1.6,
           "Glare": 0.3,
           "Color": [
             0.78,
@@ -71,9 +71,18 @@
       "ColorCorrection": {
         "$className": "ColorCorrectionEffect",
         "$properties": {
-          "Brightness": 0.02,
-          "Contrast": 0.08,
-          "Saturation": 0.12
+          "Brightness": 0.0,
+          "Contrast": 0.1,
+          "Saturation": 0.04
+        }
+      },
+      "DepthOfField": {
+        "$className": "DepthOfFieldEffect",
+        "$properties": {
+          "FarIntensity": 0.12,
+          "FocusDistance": 60,
+          "InFocusRadius": 140,
+          "NearIntensity": 0
         }
       }
     },

@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Scenery = require(script.Parent:WaitForChild("Scenery"))
 
 local WorldBuilder = {}
 
@@ -67,6 +68,8 @@ local function buildHub(): (SpawnLocation, Vector3)
 		Position = Vector3.new(0, -2, 0),
 		Color = Color3.fromRGB(95, 175, 85),
 		Material = Enum.Material.Grass,
+		-- 見た目は下の地形（草がゆれる）。この部品は歩く床としてだけ使う
+		Transparency = 1,
 	})
 
 	local spawn = Instance.new("SpawnLocation")
@@ -325,92 +328,14 @@ local function buildShop(): ProximityPrompt
 	return prompt
 end
 
--- ゾーンの飾り（道の外側に並べる）
-local function decorate(kind: string, position: Vector3, rng: Random)
-	if kind == "tree" then
-		part({
-			Name = "Trunk",
-			Size = Vector3.new(2, 8, 2),
-			Position = position + Vector3.new(0, 4, 0),
-			Color = Color3.fromRGB(110, 75, 45),
-		})
-		part({
-			Name = "Leaves",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.one * rng:NextNumber(8, 11),
-			Position = position + Vector3.new(0, 10, 0),
-			Color = Color3.fromRGB(60, 150, 60),
-			Material = Enum.Material.Grass,
-		})
-	elseif kind == "cactus" then
-		local h = rng:NextNumber(7, 12)
-		local green = Color3.fromRGB(80, 150, 70)
-		part({
-			Name = "Cactus",
-			Size = Vector3.new(2.5, h, 2.5),
-			Position = position + Vector3.new(0, h / 2, 0),
-			Color = green,
-		})
-		part({
-			Name = "CactusArm",
-			Size = Vector3.new(4, 1.5, 1.5),
-			Position = position + Vector3.new(2, h * 0.55, 0),
-			Color = green,
-		})
-		part({
-			Name = "CactusArm",
-			Size = Vector3.new(1.5, 3, 1.5),
-			Position = position + Vector3.new(3.3, h * 0.55 + 1.5, 0),
-			Color = green,
-		})
-	elseif kind == "pine" then
-		part({
-			Name = "Trunk",
-			Size = Vector3.new(1.6, 4, 1.6),
-			Position = position + Vector3.new(0, 2, 0),
-			Color = Color3.fromRGB(100, 70, 45),
-		})
-		for i, w in { 9, 7, 4.5 } do
-			part({
-				Name = "PineLayer",
-				Size = Vector3.new(w, 3, w),
-				Position = position + Vector3.new(0, 2.5 + i * 2.6, 0),
-				Color = if i == 3 then Color3.fromRGB(245, 250, 255) else Color3.fromRGB(40, 110, 70),
-				Material = if i == 3 then Enum.Material.Snow else Enum.Material.Grass,
-			})
-		end
-	elseif kind == "rock" then
-		local s = rng:NextNumber(4, 9)
-		part({
-			Name = "Rock",
-			Size = Vector3.new(s, s * 0.8, s * 1.1),
-			CFrame = CFrame.new(position + Vector3.new(0, s * 0.3, 0))
-				* CFrame.Angles(0, rng:NextNumber(0, math.pi), 0.2),
-			Color = Color3.fromRGB(45, 35, 35),
-			Material = Enum.Material.Basalt,
-		})
-		if rng:NextNumber() < 0.5 then
-			cylinder(position + Vector3.new(rng:NextNumber(-4, 4), 0.05, s), rng:NextNumber(5, 9), 0.3, {
-				Name = "LavaPool",
-				Color = Color3.fromRGB(255, 100, 20),
-				Material = Enum.Material.Neon,
-				CanCollide = false,
-			})
-		end
-	elseif kind == "cloud" then
-		for _ = 1, 3 do
-			part({
-				Name = "Cloud",
-				Shape = Enum.PartType.Ball,
-				Size = Vector3.one * rng:NextNumber(5, 9),
-				Position = position + Vector3.new(rng:NextNumber(-4, 4), rng:NextNumber(1, 4), rng:NextNumber(-4, 4)),
-				Color = Color3.new(1, 1, 1),
-				Material = Enum.Material.SmoothPlastic,
-				CanCollide = false,
-			})
-		end
-	end
-end
+-- 道の材質（ゾーンごと）
+local ROAD_MATERIAL = {
+	tree = Enum.Material.Ground,
+	cactus = Enum.Material.Sandstone,
+	pine = Enum.Material.Cobblestone,
+	rock = Enum.Material.Asphalt,
+	cloud = Enum.Material.Marble,
+}
 
 local function buildZone(index: number, zone, zStart: number, zEnd: number, rng: Random)
 	local length = zEnd - zStart
@@ -425,13 +350,15 @@ local function buildZone(index: number, zone, zStart: number, zEnd: number, rng:
 			then Enum.Material.Snow
 			elseif zone.decor == "cactus" then Enum.Material.Sand
 			else Enum.Material.Grass,
+		-- 雲の上のほかは、見た目を地形にまかせて、この部品は歩く床としてだけ使う
+		Transparency = if zone.decor == "cloud" then 0 else 1,
 	})
 	part({
 		Name = "Road" .. index,
 		Size = Vector3.new(ROAD_WIDTH, 1, length),
 		Position = Vector3.new(0, -0.4, centerZ),
 		Color = zone.road,
-		Material = Enum.Material.Concrete,
+		Material = ROAD_MATERIAL[zone.decor] or Enum.Material.Concrete,
 	})
 	-- 見えない横の壁（道から外に出ないように）
 	for _, x in { -TRACK_WIDTH / 2 - 1, TRACK_WIDTH / 2 + 1 } do
@@ -478,7 +405,7 @@ local function buildZone(index: number, zone, zStart: number, zEnd: number, rng:
 		for _, side in { -1, 1 } do
 			local x = side * rng:NextNumber(ROAD_WIDTH / 2 + 8, TRACK_WIDTH / 2 - 6)
 			local z = -(zStart + (i - 0.5) * length / count + rng:NextNumber(-8, 8))
-			decorate(zone.decor, Vector3.new(x, 0, z), rng)
+			Scenery.prop(zone.decor, Vector3.new(x, 0, z), rng)
 		end
 	end
 
@@ -682,8 +609,10 @@ function WorldBuilder.build()
 	local eggs = {}
 	local enemyHomes = {}
 	local zStart = HUB_HALF
+	local sceneZones = {}
 	for i, zone in Config.Zones do
 		local zEnd = zone.distance + 60
+		table.insert(sceneZones, { decor = zone.decor, zStart = zStart, zEnd = zEnd })
 		local egg, homes = buildZone(i, zone, zStart, zEnd, rng)
 		table.insert(eggs, egg)
 		for _, h in homes do
@@ -700,6 +629,8 @@ function WorldBuilder.build()
 		Transparency = 0.6,
 	})
 	buildDistanceMarkers(zStart)
+	-- 道の外の景色（地形の丘・山・川と、森）
+	Scenery.build(world, HUB_HALF, sceneZones)
 
 	-- たまごはゆっくり回って浮き、結晶はくるくる回る（1秒に 20 回だけ動かして軽くする）
 	local t, acc = 0, 0
