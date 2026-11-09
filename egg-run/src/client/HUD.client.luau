@@ -18,6 +18,7 @@ local dragonAction = remotes:WaitForChild("DragonAction") :: RemoteFunction
 local hatchEgg = remotes:WaitForChild("HatchEgg") :: RemoteFunction
 local dailyAction = remotes:WaitForChild("DailyAction") :: RemoteFunction
 local useSkill = remotes:WaitForChild("UseSkill") :: RemoteFunction
+local weaponAction = remotes:WaitForChild("WeaponAction") :: RemoteFunction
 
 local player = Players.LocalPlayer
 local stats = player:WaitForChild("leaderstats")
@@ -316,7 +317,7 @@ shop.ZIndex = 5
 shop.Parent = gui
 corner(shop, 14)
 local sizeLimit = Instance.new("UISizeConstraint")
-sizeLimit.MaxSize = Vector2.new(460, 520)
+sizeLimit.MaxSize = Vector2.new(460, 560)
 sizeLimit.Parent = shop
 
 local shopTitle = text(shop, {
@@ -340,10 +341,12 @@ closeButton.Parent = shop
 corner(closeButton, 8)
 
 local tabs = {}
-local function makeTab(label: string, x: number)
+-- タブは 2段（上に 4つ、下に 3つ）
+local function makeTab(label: string, column: number, line: number)
+	local perLine = if line == 1 then 4 else 3
 	local b = Instance.new("TextButton")
-	b.Position = UDim2.new(x, 4, 0, 46)
-	b.Size = UDim2.new(1 / 6, -8, 0, 34)
+	b.Position = UDim2.new(column / perLine, 4, 0, 44 + (line - 1) * 36)
+	b.Size = UDim2.new(1 / perLine, -8, 0, 32)
 	b.Font = Enum.Font.GothamBold
 	b.TextScaled = true
 	b.TextColor3 = Color3.new(1, 1, 1)
@@ -353,16 +356,17 @@ local function makeTab(label: string, x: number)
 	corner(b, 8)
 	return b
 end
-tabs.items = makeTab("👟 道具", 0)
-tabs.dragons = makeTab("🐉 仲間", 1 / 6)
-tabs.book = makeTab("📖 図鑑", 2 / 6)
-tabs.cage = makeTab("🥚 檻", 3 / 6)
-tabs.daily = makeTab("📅 毎日", 4 / 6)
-tabs.trophy = makeTab("🏆 実績", 5 / 6)
+tabs.items = makeTab("👟 道具", 0, 1)
+tabs.weapons = makeTab("⚔️ 武器", 1, 1)
+tabs.dragons = makeTab("🐉 仲間", 2, 1)
+tabs.book = makeTab("📖 図鑑", 3, 1)
+tabs.cage = makeTab("🥚 檻", 0, 2)
+tabs.daily = makeTab("📅 毎日", 1, 2)
+tabs.trophy = makeTab("🏆 実績", 2, 2)
 
 local list = Instance.new("ScrollingFrame")
-list.Position = UDim2.new(0, 8, 0, 88)
-list.Size = UDim2.new(1, -16, 1, -96)
+list.Position = UDim2.new(0, 8, 0, 120)
+list.Size = UDim2.new(1, -16, 1, -128)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.ScrollBarThickness = 6
@@ -1349,6 +1353,64 @@ local function renderTrophies()
 	end
 end
 
+-- 武器：形ごとに 5つのレア度をならべる。買う・持ちかえる
+local function renderWeapons()
+	local owned = decode("Weapons")
+	local equipped = player:GetAttribute("Weapon")
+	local count = 0
+	for _ in owned do
+		count += 1
+	end
+	shopTitle.Text = string.format("⚔️ 武器 %d / %d　🪙 %s", count, #Config.Weapons, short(coinValue.Value))
+	local current = Config.findWeapon(equipped)
+	heading(
+		0,
+		if current
+			then string.format(
+				"手に持つ：%s %s（クリック・タップで こうげき）",
+				string.rep("★", current.rarity),
+				current.name
+			)
+			else "武器を えらぼう"
+	)
+	for si, shape in Config.WeaponShapes do
+		heading(si * 10, string.format("%s　%s", shape.noun, shape.desc))
+		for _, w in Config.Weapons do
+			if w.shape ~= shape.shape then
+				continue
+			end
+			local rarity = Config.Rarities[w.rarity]
+			local has = owned[w.id] == true
+			local isOn = w.id == equipped
+			local detail =
+				string.format("⚔️%s ／ %s秒 ／ とどく %d", short(w.damage), tostring(w.cooldown), w.range)
+			local label, color, enabled
+			if isOn then
+				label, color, enabled = "持っている", GRAY, false
+			elseif has then
+				label, color, enabled = "持つ", BLUE, true
+			else
+				label = "🪙 " .. short(w.price)
+				color = if coinValue.Value >= w.price then GREEN else Color3.fromRGB(150, 90, 60)
+				enabled = true
+			end
+			row(
+				si * 10 + w.rarity,
+				string.format("%s%s %s", if isOn then "✋" else "", string.rep("★", w.rarity), w.name),
+				detail,
+				label,
+				color,
+				enabled,
+				function()
+					local ok, msg = weaponAction:InvokeServer(if has then "equip" else "buy", w.id)
+					toast(msg, ok)
+				end,
+				rarity.color
+			)
+		end
+	end
+end
+
 render = function()
 	for _, c in list:GetChildren() do
 		if c:IsA("Frame") then
@@ -1386,6 +1448,8 @@ render = function()
 		renderBook()
 	elseif currentTab == "daily" then
 		renderDaily()
+	elseif currentTab == "weapons" then
+		renderWeapons()
 	elseif currentTab == "trophy" then
 		renderTrophies()
 	else
@@ -1435,7 +1499,20 @@ for name, b in tabs do
 		updateCageRows()
 	end)
 end
-for _, attr in { "Incubator", "Collection", "IncubatorSlots", "Seen", "Team", "TeamSlots", "Profile", "SecretOpen" } do
+for _, attr in
+	{
+		"Incubator",
+		"Collection",
+		"IncubatorSlots",
+		"Seen",
+		"Team",
+		"TeamSlots",
+		"Profile",
+		"SecretOpen",
+		"Weapons",
+		"Weapon",
+	}
+do
 	player:GetAttributeChangedSignal(attr):Connect(function()
 		if shop.Visible and not busy then
 			render()
@@ -1783,6 +1860,8 @@ task.delay(2, function()
 	toast("ようこそ「" .. Config.GameTitle .. "」へ！ ルームランナーで足をきたえよう")
 	task.wait(1.5)
 	toast("速くなったら、遠くのたまごを取って巣まで運ぼう！")
+	task.wait(1.5)
+	toast("⚔️ 手に持った武器は、クリック（スマホはタップ）で こうげき！")
 	-- 今日のログインボーナスがまだなら、毎日のごほうびを開く
 	local p = profile()
 	if p.login and p.login.canClaim and not shop.Visible then

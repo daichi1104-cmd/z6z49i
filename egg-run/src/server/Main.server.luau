@@ -12,6 +12,7 @@ local Enemies = require(script.Parent:WaitForChild("Enemies"))
 local Dragons = require(script.Parent:WaitForChild("Dragons"))
 local Progress = require(script.Parent:WaitForChild("Progress"))
 local Tower = require(script.Parent:WaitForChild("Tower"))
+local Weapons = require(script.Parent:WaitForChild("Weapons"))
 
 local world = WorldBuilder.build()
 
@@ -35,6 +36,7 @@ local hatchEgg = remote("RemoteFunction", "HatchEgg") :: RemoteFunction
 local dragonAction = remote("RemoteFunction", "DragonAction") :: RemoteFunction
 local dailyAction = remote("RemoteFunction", "DailyAction") :: RemoteFunction
 local useSkill = remote("RemoteFunction", "UseSkill") :: RemoteFunction
+local weaponAction = remote("RemoteFunction", "WeaponAction") :: RemoteFunction
 
 -- DataStore は Studio で API アクセスが無効だと失敗するので pcall で守る
 local store
@@ -54,6 +56,8 @@ type Data = {
 	team: { string }, -- ついて来るドラゴン（最大 3匹）
 	xp: { [string]: number }, -- ドラゴンごとの経験値
 	secretOpen: boolean, -- ひみつのゾーンの門が開いたか
+	weapons: { [string]: boolean }, -- 持っている武器
+	weapon: string, -- 手に持つ武器
 	stats: any,
 	achievements: any,
 	login: any,
@@ -82,6 +86,8 @@ local function defaultData(): Data
 		team = { "Chibi" },
 		xp = {},
 		secretOpen = false,
+		weapons = { [Config.StarterWeapon] = true },
+		weapon = Config.StarterWeapon,
 	}
 	Progress.ensure(d)
 	return d :: any
@@ -174,6 +180,16 @@ local function loadData(player: Player): Data
 		d.team = {}
 	end
 	d.secretOpen = value.secretOpen == true
+	if typeof(value.weapons) == "table" then
+		for id, has in value.weapons do
+			if has == true and Config.findWeapon(tostring(id)) then
+				d.weapons[tostring(id)] = true
+			end
+		end
+	end
+	if Config.findWeapon(value.weapon) and d.weapons[value.weapon] then
+		d.weapon = value.weapon
+	end
 	d.stats = value.stats
 	d.achievements = value.achievements
 	d.login = value.login
@@ -200,6 +216,8 @@ local function saveData(player: Player)
 			team = d.team,
 			xp = d.xp,
 			secretOpen = d.secretOpen,
+			weapons = d.weapons,
+			weapon = d.weapon,
 			stats = d.stats,
 			achievements = d.achievements,
 			login = d.login,
@@ -343,6 +361,8 @@ local function syncStats(player: Player)
 	player:SetAttribute("TeamSlots", teamSlots(d))
 	player:SetAttribute("SecretOpen", d.secretOpen)
 	player:SetAttribute("SkillReadyAt", skillReadyAt[player] or 0)
+	player:SetAttribute("Weapons", HttpService:JSONEncode(d.weapons))
+	player:SetAttribute("Weapon", d.weapon)
 end
 
 local function applyStats(player: Player, fullHeal: boolean?)
@@ -436,6 +456,33 @@ local function equipTeam(player: Player)
 	local d = data[player]
 	if d then
 		Dragons.equip(player, d.team)
+	end
+end
+
+-- 手に持つ武器をわたす（前の武器は消す）。持たせたら、すぐ手に持つ
+local function giveWeapon(player: Player)
+	local d = data[player]
+	local weapon = d and Config.findWeapon(d.weapon)
+	local character = player.Character
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if not weapon or not character or not backpack then
+		return
+	end
+	for _, place in { backpack, character } do
+		for _, child in place:GetChildren() do
+			if child:IsA("Tool") and child:GetAttribute("WeaponId") then
+				child:Destroy()
+			end
+		end
+	end
+	local tool = Weapons.build(weapon)
+	tool.Activated:Connect(function()
+		Weapons.swing(player, tool, weapon)
+	end)
+	tool.Parent = backpack
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health > 0 then
+		humanoid:EquipTool(tool)
 	end
 end
 
@@ -625,6 +672,12 @@ Players.PlayerAdded:Connect(function(player)
 		local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 		applyStats(player, true)
 		equipTeam(player)
+		-- Backpack は キャラが出たあとに作られるので、少し待ってから武器をわたす
+		task.delay(0.5, function()
+			if player.Character == character then
+				giveWeapon(player)
+			end
+		end)
 		humanoid.Died:Connect(function()
 			if carrying[player] then
 				notify:FireClient(player, "💥 やられて たまごを落としてしまった…")
@@ -647,6 +700,7 @@ Players.PlayerRemoving:Connect(function(player)
 	lastWarn[player] = nil
 	buffs[player] = nil
 	skillReadyAt[player] = nil
+	Weapons.forget(player)
 end)
 
 game:BindToClose(function()
@@ -1177,6 +1231,44 @@ dailyAction.OnServerInvoke = function(player: Player, action: any, arg: any)
 end
 
 --------------------------------------------------------------------------------
+-- 武器：買う・持ちかえる
+--------------------------------------------------------------------------------
+
+weaponAction.OnServerInvoke = function(player: Player, action: any, id: any)
+	local d = data[player]
+	local weapon = Config.findWeapon(id)
+	if not d or not weapon then
+		return false, "その武器はありません"
+	end
+	local msg
+	if action == "buy" then
+		if d.weapons[weapon.id] then
+			return false, "もう持っています"
+		end
+		if d.coins < weapon.price then
+			return false, string.format("コインが %d 足りません", weapon.price - math.floor(d.coins))
+		end
+		d.coins -= weapon.price
+		d.weapons[weapon.id] = true
+		msg = string.format("⚔️ %s を手に入れた！", weapon.name)
+	elseif action == "equip" then
+		if not d.weapons[weapon.id] then
+			return false, "まだ持っていません"
+		end
+		msg = string.format("⚔️ %s に持ちかえた", weapon.name)
+	else
+		return false, "エラー"
+	end
+	-- 買ったら、そのまま手に持つ
+	d.weapon = weapon.id
+	giveWeapon(player)
+	checkProgress(player)
+	syncStats(player)
+	save(player)
+	return true, msg
+end
+
+--------------------------------------------------------------------------------
 -- わざ：連れているドラゴンのうち、レベル 5 以上の全員が使う
 --------------------------------------------------------------------------------
 
@@ -1315,7 +1407,7 @@ for _, home in world.enemyHomes do
 	Enemies.spawn(home.position, home.zoneIndex, home.boss, enemyFolder)
 end
 -- 敵をたおしたら、たおしたプレイヤーにコインと経験値
-Enemies.onDefeated(function(player, enemy)
+Enemies.onDefeated(function(player, enemy, source)
 	if enemy.tag == "tower" then
 		Tower.onEnemyDefeated(enemy)
 	end
@@ -1324,6 +1416,9 @@ Enemies.onDefeated(function(player, enemy)
 		return
 	end
 	Progress.bump(d, "kills")
+	if source == "weapon" then
+		Progress.bump(d, "weaponKills")
+	end
 	if enemy.boss then
 		Progress.bump(d, "bossKills")
 	end

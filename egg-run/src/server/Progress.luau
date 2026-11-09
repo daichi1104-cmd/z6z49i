@@ -19,6 +19,7 @@ local STAT_KEYS = {
 	"loginDays",
 	"towerBest",
 	"towerFloors",
+	"weaponKills",
 }
 
 -- 読みこんだデータに、新しい項目がなければ足す
@@ -95,6 +96,12 @@ function Progress.statValue(d: any, key: string): number
 		return seenCount(d, 5)
 	elseif key == "level" then
 		return maxLevel(d)
+	elseif key == "weapons" then
+		local n = 0
+		for _ in d.weapons or {} do
+			n += 1
+		end
+		return n
 	elseif key == "z6" or key == "z7" then
 		return d.stats.zone[key] or 0
 	end

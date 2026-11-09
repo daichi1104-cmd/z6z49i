@@ -744,6 +744,26 @@ do
 	add("breed1", "はじめての交配", "breeds", 1, 500, "ドラゴンを 交配する")
 	add("breed10", "交配マスター", "breeds", 10, 5000, "ドラゴンを 10回 交配する")
 	add("grad1", "はじめての卒業", "graduated", 1, 100, "ドラゴンを 卒業させる")
+	for _, g in { { 5, 1000 }, { 20, 10000 }, { 50, 200000 } } do
+		add(
+			"weapon" .. g[1],
+			"武器コレクター",
+			"weapons",
+			g[1],
+			g[2],
+			string.format("武器を %d 種類 集める", g[1])
+		)
+	end
+	for _, g in { { 10, 300 }, { 200, 5000 } } do
+		add(
+			"wkill" .. g[1],
+			"武器の達人",
+			"weaponKills",
+			g[1],
+			g[2],
+			string.format("武器で 敵を %d 体 たおす", g[1])
+		)
+	end
 	add("level10", "なかよしレベル", "level", 10, 2000, "ドラゴンを レベル 10 にする")
 	add("level30", "さいきょうの相棒", "level", 30, 30000, "ドラゴンを レベル 30 にする")
 end
@@ -768,6 +788,157 @@ function Config.towerFloor(f: number)
 		speed = math.min(14 + 2.5 * f, 90),
 		reward = math.floor(25 * 1.28 ^ (f - 1)),
 	}
+end
+
+------------------------------------------------------------------------
+-- 武器（自分でも戦える）：10の形 × 5つのレア度 = 50種類
+------------------------------------------------------------------------
+
+-- 形ごとの特ちょう
+-- power = こうげき力の倍率、cooldown = 何秒ごとにふれるか、range = とどく距離、arc = 当たる角度（度）
+-- crit = 会心（2倍）の出やすさ、stun = 敵を止める秒数、ranged = 遠くへ飛ばす、splash = 当たったまわりにも当たる半径
+Config.WeaponShapes = {
+	{ shape = "sword", noun = "剣", power = 1, cooldown = 0.5, range = 9, arc = 110, desc = "バランスがいい" },
+	{
+		shape = "katana",
+		noun = "刀",
+		power = 0.9,
+		cooldown = 0.35,
+		range = 9,
+		arc = 90,
+		crit = 0.25,
+		desc = "すばやい。ときどき会心の一撃（2倍）",
+	},
+	{
+		shape = "dagger",
+		noun = "短剣",
+		power = 0.5,
+		cooldown = 0.22,
+		range = 6,
+		arc = 80,
+		desc = "とても はやく ふれる",
+	},
+	{
+		shape = "greatsword",
+		noun = "大剣",
+		power = 2.2,
+		cooldown = 1,
+		range = 11,
+		arc = 170,
+		desc = "おそいが 広く 強い",
+	},
+	{
+		shape = "spear",
+		noun = "槍",
+		power = 1.1,
+		cooldown = 0.6,
+		range = 16,
+		arc = 40,
+		desc = "まっすぐ 遠くまで とどく",
+		lunge = true,
+	},
+	{
+		shape = "scythe",
+		noun = "鎌",
+		power = 1.3,
+		cooldown = 0.9,
+		range = 12,
+		arc = 360,
+		desc = "ぐるっと回って まわり全部に当たる",
+	},
+	{ shape = "axe", noun = "斧", power = 1.9, cooldown = 0.8, range = 8, arc = 110, desc = "一撃が 重い" },
+	{
+		shape = "hammer",
+		noun = "ハンマー",
+		power = 2.3,
+		cooldown = 1.2,
+		range = 10,
+		arc = 360,
+		stun = 1,
+		desc = "地面をたたいて まわりの敵を 1秒 止める",
+	},
+	{
+		shape = "bow",
+		noun = "弓",
+		power = 0.9,
+		cooldown = 0.65,
+		range = 70,
+		arc = 120,
+		ranged = true,
+		desc = "遠くの敵を 矢で ねらう",
+	},
+	{
+		shape = "staff",
+		noun = "杖",
+		power = 1.1,
+		cooldown = 1,
+		range = 55,
+		arc = 120,
+		ranged = true,
+		splash = 12,
+		desc = "魔法の玉が はじけて まわりにも当たる",
+	},
+}
+
+-- レア度ごとの材料（名前の前につく）、基本のこうげき力、ねだん
+Config.WeaponTiers = {
+	{ prefix = "ひのきの", damage = 8, price = 150 },
+	{ prefix = "てつの", damage = 24, price = 1500 },
+	{ prefix = "ミスリルの", damage = 70, price = 12000 },
+	{ prefix = "黄金竜の", damage = 200, price = 80000 },
+	{ prefix = "星くずの", damage = 550, price = 400000 },
+}
+
+-- 形ごとの ねだんの倍率
+local WEAPON_PRICE = {
+	sword = 1,
+	katana = 1.2,
+	dagger = 0.8,
+	greatsword = 1.3,
+	spear = 1.1,
+	scythe = 1.4,
+	axe = 1.1,
+	hammer = 1.3,
+	bow = 1.2,
+	staff = 1.3,
+}
+
+Config.Weapons = {}
+do
+	local n = 0
+	for rarity, tier in Config.WeaponTiers do
+		for _, s in Config.WeaponShapes do
+			n += 1
+			table.insert(Config.Weapons, {
+				id = string.format("W%02d", n),
+				name = tier.prefix .. s.noun,
+				shape = s.shape,
+				rarity = rarity,
+				damage = math.floor(tier.damage * s.power + 0.5),
+				cooldown = s.cooldown,
+				range = s.range,
+				arc = s.arc,
+				crit = s.crit,
+				stun = s.stun,
+				ranged = s.ranged,
+				splash = s.splash,
+				lunge = s.lunge,
+				desc = s.desc,
+				price = math.floor(tier.price * WEAPON_PRICE[s.shape] / 10 + 0.5) * 10,
+			})
+		end
+	end
+end
+
+-- はじめから持っている武器（ひのきの剣）
+Config.StarterWeapon = "W01"
+
+local weaponById = {}
+for _, w in Config.Weapons do
+	weaponById[w.id] = w
+end
+function Config.findWeapon(id: any)
+	return if typeof(id) == "string" then weaponById[id] else nil
 end
 
 return Config

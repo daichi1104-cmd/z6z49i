@@ -58,7 +58,7 @@ export type SpawnOpts = {
 }
 
 local active: { Enemy } = {}
-local defeatHandler: ((Player?, Enemy) -> ())? = nil
+local defeatHandler: ((Player?, Enemy, string?) -> ())? = nil
 
 local Rig = require(script.Parent:WaitForChild("Rig"))
 local A = require(script.Parent:WaitForChild("Anatomy"))
@@ -610,11 +610,12 @@ function Enemies.isAlive(e: Enemy): boolean
 end
 
 -- たおしたときに呼ばれる関数を登録（だれがたおしたか、どの敵か）
-function Enemies.onDefeated(handler: (Player?, Enemy) -> ())
+function Enemies.onDefeated(handler: (Player?, Enemy, string?) -> ())
 	defeatHandler = handler
 end
 
-function Enemies.damage(e: Enemy, amount: number, attacker: Player?)
+-- source：何でこうげきしたか（"weapon" = 自分の武器。ふつうはドラゴン）
+function Enemies.damage(e: Enemy, amount: number, attacker: Player?, source: string?)
 	if e.dead then
 		return
 	end
@@ -632,7 +633,7 @@ function Enemies.damage(e: Enemy, amount: number, attacker: Player?)
 		e.respawnAt = os.clock() + (if e.boss then Config.BossRespawnTime else Config.EnemyRespawnTime)
 		e.model.Parent = nil
 		if defeatHandler then
-			defeatHandler(attacker, e)
+			defeatHandler(attacker, e, source)
 		end
 		if e.noRespawn then
 			Enemies.remove(e)
