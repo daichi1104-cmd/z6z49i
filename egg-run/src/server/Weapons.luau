@@ -256,17 +256,17 @@ SHAPES.scythe = function(b)
 	grip(b, 0.9, -0.45)
 	rodZ(b, 0.24, -1.6, 4.4, b.look.trim:Lerp(b.look.grip, 0.6), Enum.Material.Wood)
 	rodZ(b, 0.34, 4.2, 4.6, b.look.trim, b.look.trimMat)
-	-- 上の刃：手に持ったとき縦（+X）へ出て、手もとの方へ曲がる
-	local cf = CFrame.new(0.2, 0, 4.35) * CFrame.Angles(0, math.rad(90), 0)
+	-- 上の刃：手に持ったとき縦（-X）へ出て、手もとの方へ曲がる
+	local cf = CFrame.new(-0.2, 0, 4.35) * CFrame.Angles(0, math.rad(-90), 0)
 	for i = 1, 4 do
 		local len = 0.95
 		local w = 0.55 - i * 0.08
 		piece(b, v(w, 0.1, len), cf * CFrame.new(0, 0, len / 2), b.look.blade, b.look.bladeMat)
 		if b.look.glow then
 			-- 内がわ（曲がる方）の刃が光る
-			piece(b, v(0.06, 0.11, len), cf * CFrame.new(w / 2, 0, len / 2), b.look.glow, Enum.Material.Neon)
+			piece(b, v(0.06, 0.11, len), cf * CFrame.new(-w / 2, 0, len / 2), b.look.glow, Enum.Material.Neon)
 		end
-		cf = cf * CFrame.new(0, 0, len) * CFrame.Angles(0, math.rad(22), 0)
+		cf = cf * CFrame.new(0, 0, len) * CFrame.Angles(0, math.rad(-22), 0)
 	end
 	table.insert(b.tips, cf.Position)
 end
@@ -274,14 +274,14 @@ end
 SHAPES.axe = function(b)
 	grip(b, 1, -0.5)
 	rodZ(b, 0.26, -0.6, 3.1, b.look.trim:Lerp(b.look.grip, 0.6), Enum.Material.Wood)
-	-- 頭：手に持ったとき縦（+X）に、大きな刃
+	-- 頭：手に持ったとき縦（-X）に、大きな刃
 	piece(b, v(0.5, 0.3, 0.7), CFrame.new(0, 0, 2.8), b.look.trim, b.look.trimMat)
-	piece(b, v(1.5, 0.16, 1.1), CFrame.new(0.85, 0, 2.8), b.look.blade, b.look.bladeMat)
-	piece(b, v(0.5, 0.16, 1.5), CFrame.new(1.55, 0, 2.8), b.look.blade, b.look.bladeMat)
+	piece(b, v(1.5, 0.16, 1.1), CFrame.new(-0.85, 0, 2.8), b.look.blade, b.look.bladeMat)
+	piece(b, v(0.5, 0.16, 1.5), CFrame.new(-1.55, 0, 2.8), b.look.blade, b.look.bladeMat)
 	if b.look.glow then
-		piece(b, v(0.1, 0.17, 1.55), CFrame.new(1.82, 0, 2.8), b.look.glow, Enum.Material.Neon)
+		piece(b, v(0.1, 0.17, 1.55), CFrame.new(-1.82, 0, 2.8), b.look.glow, Enum.Material.Neon)
 	end
-	table.insert(b.tips, v(1.8, 0, 2.8))
+	table.insert(b.tips, v(-1.8, 0, 2.8))
 end
 
 SHAPES.hammer = function(b)
