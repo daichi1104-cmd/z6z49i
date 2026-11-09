@@ -35,8 +35,19 @@ type Follower = {
 	jawUntil: number,
 	phase: number,
 	target: any?,
+	slot: number,
+	nameText: TextLabel,
 }
-local followers: { [Player]: Follower } = {}
+-- プレイヤーごとの、ついて来るドラゴン（「仲間の席」で最大 3匹）
+local followers: { [Player]: { Follower } } = {}
+
+-- ドラゴンのレベルを返す関数（Main が登録する。レベルでこうげき力が上がる）
+local levelOf: (Player, string) -> number = function()
+	return 1
+end
+function Dragons.setLevelSource(fn: (Player, string) -> number)
+	levelOf = fn
+end
 
 -- はじめの仲間と、たまごから生まれるドラゴンの両方からさがす
 function Dragons.find(id: string?)
@@ -674,6 +685,7 @@ local function build(dragon)
 	local rarityInfo = dragon.rarity and Config.Rarities[dragon.rarity]
 	text.TextColor3 = if rarityInfo then rarityInfo.color else Color3.new(1, 1, 1)
 	text.TextStrokeTransparency = 0.3
+	text.Name = "NameText"
 	text.Text = dragon.name
 	text.Parent = nameTag
 	nameTag.Adornee = root
@@ -720,35 +732,92 @@ local function build(dragon)
 end
 Dragons.build = build
 
-function Dragons.equip(player: Player, id: string?)
+local function nameFor(player: Player, dragon): string
+	return string.format("Lv.%d %s", levelOf(player, dragon.id), dragon.name)
+end
+
+-- ids のドラゴンを連れていく（空なら、だれも連れていかない）
+function Dragons.equip(player: Player, ids: { string }?)
 	local old = followers[player]
 	if old then
-		old.model:Destroy()
+		for _, f in old do
+			f.model:Destroy()
+		end
 		followers[player] = nil
 	end
-	local dragon = Dragons.find(id)
-	if not dragon then
+	if not ids or #ids == 0 then
 		return
 	end
-	local model, root, joints, look = build(dragon)
 	local character = player.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local start = if hrp then hrp.CFrame else CFrame.new(0, 5, 0)
-	root.CFrame = start
-	model.Parent = folder
-	followers[player] = {
-		model = model,
-		root = root,
-		joints = joints,
-		look = look,
-		cf = start,
-		scale = scaleOf(dragon),
-		dragon = dragon,
-		lastAttack = 0,
-		jawUntil = 0,
-		phase = math.random() * 10,
-		target = nil,
-	}
+	local list = {}
+	for slot, id in ids do
+		local dragon = Dragons.find(id)
+		if dragon then
+			local model, root, joints, look = build(dragon)
+			root.CFrame = start
+			model.Parent = folder
+			local nameText = model:FindFirstChild("NameText", true) :: TextLabel
+			nameText.Text = nameFor(player, dragon)
+			table.insert(list, {
+				model = model,
+				root = root,
+				joints = joints,
+				look = look,
+				cf = start,
+				scale = scaleOf(dragon),
+				dragon = dragon,
+				lastAttack = 0,
+				jawUntil = 0,
+				phase = math.random() * 10,
+				target = nil,
+				slot = slot,
+				nameText = nameText,
+			})
+		end
+	end
+	followers[player] = list
+end
+
+-- 名前の上のレベル表示を書きかえる
+function Dragons.refreshNames(player: Player)
+	for _, f in followers[player] or {} do
+		f.nameText.Text = nameFor(player, f.dragon)
+	end
+end
+
+-- 連れているドラゴンの位置と、データ（わざの演出に使う）
+function Dragons.followersOf(player: Player): { { position: Vector3, dragon: any } }
+	local out = {}
+	for _, f in followers[player] or {} do
+		table.insert(out, { position = f.cf.Position, dragon = f.dragon })
+	end
+	return out
+end
+
+-- わざの演出：光の輪が広がって消える
+function Dragons.effect(position: Vector3, color: Color3, radius: number)
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Size = Vector3.new(0.6, 2, 2)
+	ring.CFrame = CFrame.new(position) * CFrame.Angles(0, 0, math.pi / 2)
+	ring.Anchored = true
+	ring.CanCollide = false
+	ring.CanQuery = false
+	ring.CanTouch = false
+	ring.CastShadow = false
+	ring.Material = Enum.Material.Neon
+	ring.Color = color
+	ring.Transparency = 0.2
+	ring.Parent = folder
+	TweenService:Create(ring, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.6, radius * 2, radius * 2),
+		Transparency = 1,
+	}):Play()
+	task.delay(0.6, function()
+		ring:Destroy()
+	end)
 end
 
 -- 羽ばたき・しっぽ・首・あごを動かす
@@ -799,11 +868,12 @@ local function shoot(player: Player, f: Follower, enemy, mouth: Vector3)
 	if not Enemies.isAlive(enemy) or not f.model.Parent then
 		return
 	end
+	local damage = attack.damage * Config.levelPower(levelOf(player, f.dragon.id))
 	local from = (f.cf * CFrame.new(mouth * f.scale)).Position
 	local to = Enemies.centerOf(enemy)
 	local ball = Instance.new("Part")
 	ball.Shape = Enum.PartType.Ball
-	ball.Size = Vector3.one * (0.8 + attack.damage / 40)
+	ball.Size = Vector3.one * math.min(4, 0.8 + damage / 40)
 	ball.Anchored = true
 	ball.CanCollide = false
 	ball.CanQuery = false
@@ -821,8 +891,8 @@ local function shoot(player: Player, f: Follower, enemy, mouth: Vector3)
 	task.delay(travel, function()
 		ball:Destroy()
 		if Enemies.isAlive(enemy) then
-			burst(Enemies.centerOf(enemy), attack.color, 3 + attack.damage / 15)
-			Enemies.damage(enemy, attack.damage, player)
+			burst(Enemies.centerOf(enemy), attack.color, math.min(12, 3 + damage / 15))
+			Enemies.damage(enemy, damage, player)
 		end
 	end)
 end
@@ -859,17 +929,12 @@ function Dragons.start()
 	RunService.Heartbeat:Connect(function(dt)
 		t += dt
 		local now = os.clock()
-		for player, f in followers do
+		for player, list in followers do
 			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 			local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 			if not root then
 				continue
 			end
-			-- 近くの敵を自動でこうげき（持ち主が生きている間だけ）
-			if humanoid and humanoid.Health > 0 then
-				tryAttack(player, f)
-			end
-			-- 右うしろ上に浮かぶ
 			local look = root.CFrame.LookVector
 			local flatLook = Vector3.new(look.X, 0, look.Z)
 			if flatLook.Magnitude < 0.01 then
@@ -877,29 +942,39 @@ function Dragons.start()
 			end
 			flatLook = flatLook.Unit
 			local right = flatLook:Cross(Vector3.yAxis)
-			local bob = math.sin(t * 3) * 0.6
-			local goalPos = root.Position
-				+ right * (4 + f.scale * 2)
-				- flatLook * (4 + f.scale * 2)
-				+ Vector3.new(0, 2 + f.scale + bob, 0)
-			-- 敵をねらっている間は、そちらを向く
-			local faceDir = flatLook
-			if f.target and Enemies.isAlive(f.target) then
-				local toEnemy = Enemies.centerOf(f.target) - goalPos
-				toEnemy = Vector3.new(toEnemy.X, 0, toEnemy.Z)
-				if toEnemy.Magnitude > 0.1 then
-					faceDir = toEnemy.Unit
+			for _, f in list do
+				-- 近くの敵を自動でこうげき（持ち主が生きている間だけ）
+				if humanoid and humanoid.Health > 0 then
+					tryAttack(player, f)
 				end
+				-- 1匹目は右うしろ、2匹目は左うしろ、3匹目は真うしろの上に浮かぶ
+				local side = if f.slot == 1 then 1 elseif f.slot == 2 then -1 else 0
+				local back = if f.slot == 3 then 7 + f.scale * 3 else 4 + f.scale * 2
+				local up = if f.slot == 3 then 5 else 0
+				local bob = math.sin(t * 3 + f.slot) * 0.6
+				local goalPos = root.Position
+					+ right * side * (4 + f.scale * 2)
+					- flatLook * back
+					+ Vector3.new(0, 2 + f.scale + bob + up, 0)
+				-- 敵をねらっている間は、そちらを向く
+				local faceDir = flatLook
+				if f.target and Enemies.isAlive(f.target) then
+					local toEnemy = Enemies.centerOf(f.target) - goalPos
+					toEnemy = Vector3.new(toEnemy.X, 0, toEnemy.Z)
+					if toEnemy.Magnitude > 0.1 then
+						faceDir = toEnemy.Unit
+					end
+				end
+				local goal = CFrame.lookAt(goalPos, goalPos + faceDir)
+				-- 遠すぎたら瞬間移動、ふだんはなめらかに追う
+				if (f.cf.Position - goalPos).Magnitude > 80 then
+					f.cf = goal
+				else
+					f.cf = f.cf:Lerp(goal, math.min(1, dt * 8))
+				end
+				f.root.CFrame = f.cf
+				animate(f, t, now)
 			end
-			local goal = CFrame.lookAt(goalPos, goalPos + faceDir)
-			-- 遠すぎたら瞬間移動、ふだんはなめらかに追う
-			if (f.cf.Position - goalPos).Magnitude > 80 then
-				f.cf = goal
-			else
-				f.cf = f.cf:Lerp(goal, math.min(1, dt * 8))
-			end
-			f.root.CFrame = f.cf
-			animate(f, t, now)
 		end
 	end)
 

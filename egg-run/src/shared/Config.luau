@@ -39,6 +39,7 @@ Config.Zones = {
 		enemyColor = Color3.fromRGB(120, 220, 90),
 		eggColor = Color3.fromRGB(255, 250, 235),
 		decor = "tree",
+		enemyName = "大トカゲ",
 	},
 	{
 		name = "砂漠",
@@ -53,6 +54,7 @@ Config.Zones = {
 		enemyColor = Color3.fromRGB(230, 140, 50),
 		eggColor = Color3.fromRGB(255, 190, 120),
 		decor = "cactus",
+		enemyName = "大サソリ",
 	},
 	{
 		name = "雪原",
@@ -67,6 +69,7 @@ Config.Zones = {
 		enemyColor = Color3.fromRGB(90, 170, 255),
 		eggColor = Color3.fromRGB(170, 230, 255),
 		decor = "pine",
+		enemyName = "氷のオオカミ",
 	},
 	{
 		name = "火山",
@@ -81,6 +84,7 @@ Config.Zones = {
 		enemyColor = Color3.fromRGB(255, 70, 40),
 		eggColor = Color3.fromRGB(255, 110, 60),
 		decor = "rock",
+		enemyName = "溶岩サンショウウオ",
 	},
 	{
 		name = "雲の上",
@@ -95,12 +99,51 @@ Config.Zones = {
 		enemyColor = Color3.fromRGB(170, 90, 255),
 		eggColor = Color3.fromRGB(255, 215, 60),
 		decor = "cloud",
+		enemyName = "あらしの竜",
 		boss = true, -- 1体だけ大きいボスになる
+		bossName = "やみの竜王",
+	},
+	{
+		name = "星空",
+		enemyHealth = 2000,
+		distance = 4800,
+		enemies = 5,
+		enemySpeed = 78,
+		damage = 75,
+		reward = 1500,
+		ground = Color3.fromRGB(28, 26, 64),
+		road = Color3.fromRGB(150, 135, 255),
+		enemyColor = Color3.fromRGB(90, 220, 255),
+		eggColor = Color3.fromRGB(160, 130, 255),
+		decor = "star",
+		enemyName = "ほしくずの竜",
+	},
+	{
+		-- ひみつのゾーン：条件（Config.SecretZone）を満たした人だけ、門を通れる
+		name = "古代の遺跡",
+		enemyHealth = 4000,
+		distance = 6300,
+		enemies = 6,
+		enemySpeed = 92,
+		damage = 95,
+		reward = 4000,
+		ground = Color3.fromRGB(110, 140, 80),
+		road = Color3.fromRGB(190, 175, 140),
+		enemyColor = Color3.fromRGB(70, 230, 150),
+		eggColor = Color3.fromRGB(90, 255, 175),
+		decor = "ruins",
+		enemyName = "いせきのゴーレム",
+		boss = true,
+		bossName = "こだいの守護竜",
+		secret = true,
 	},
 }
 
+-- ひみつのゾーン（古代の遺跡）の門が開く条件
+Config.SecretZone = { bossKills = 3, book = 30 }
+
 -- たまごの大きさの倍率（ゾーンの順。遠いゾーンのたまごほどレアで、大きい）
-Config.EggScale = { 1, 1.2, 1.45, 1.75, 2.1 }
+Config.EggScale = { 1, 1.2, 1.45, 1.75, 2.1, 2.4, 2.7 }
 
 -- ショップの商品（一度買うとずっと使える）
 -- trainMult: トレーニング倍率（持っている中で一番高いものが効く）
@@ -153,7 +196,24 @@ Config.Items = {
 		desc = "檻に入るたまご → 5こ",
 		incubatorSlots = 5,
 	},
+	{
+		id = "Team2",
+		name = "仲間の席",
+		price = 1000,
+		desc = "いっしょに連れていけるドラゴン 1 → 2匹",
+		teamSlots = 2,
+	},
+	{
+		id = "Team3",
+		name = "仲間の席 II",
+		price = 8000,
+		desc = "いっしょに連れていけるドラゴン → 3匹",
+		teamSlots = 3,
+	},
 }
+
+-- いっしょに連れていけるドラゴンの数（ショップの「仲間の席」で増える）
+Config.TeamSlots = 1
 
 -- はじめの仲間（全員無料。1体えらんで連れて行ける。後ろをついてきて、力をくれる）
 -- たまごから生まれるドラゴン（Config.HatchDragons）も、同じしくみで連れて行ける
@@ -254,7 +314,7 @@ Config.BossRespawnTime = 30
 Config.IncubatorSlots = 3
 
 -- ゾーンごとの、かえるまでの時間（秒）
-Config.HatchTime = { 30, 60, 120, 240, 480 }
+Config.HatchTime = { 30, 60, 120, 240, 480, 720, 960 }
 
 -- レア度
 Config.Rarities = {
@@ -273,6 +333,8 @@ Config.HatchOdds = {
 	{ 30, 38, 24, 7, 1 },
 	{ 15, 30, 33, 18, 4 },
 	{ 5, 20, 35, 28, 12 },
+	{ 2, 10, 30, 35, 23 },
+	{ 0, 4, 22, 40, 34 },
 }
 
 -- 100種類のドラゴンは「属性 × 体の形」で作る
@@ -340,6 +402,8 @@ do
 				shape = shape.shape,
 				color = element.color,
 				rarity = rarity,
+				element = element.name,
+				noun = shape.noun,
 				attack = {
 					damage = math.floor(BASE_DAMAGE[rarity] * shape.power + 0.5),
 					shots = shape.shots,
@@ -382,6 +446,328 @@ for _, d in Config.HatchDragons do
 end
 function Config.findDragon(id: string?)
 	return if id then byId[id] else nil
+end
+
+-- 名前（属性 + 体の形）からドラゴンをさがす（交配で使う）
+local byName = {}
+for _, d in Config.HatchDragons do
+	byName[d.name] = d
+end
+function Config.findDragonByName(name: string)
+	return byName[name]
+end
+
+------------------------------------------------------------------------
+-- 特別なたまご（ゾーンのたまご以外）
+------------------------------------------------------------------------
+
+-- 黄金のたまご（イベントで出る）と、交配のたまご（中身は交配したときに決まる）
+Config.SpecialEggs = {
+	gold = {
+		name = "黄金",
+		reward = 800,
+		color = Color3.fromRGB(255, 205, 40),
+		scale = 2.2,
+		hatchTime = 300,
+		odds = { 0, 10, 35, 35, 20 },
+	},
+	breed = {
+		name = "交配",
+		reward = 0,
+		color = Color3.fromRGB(255, 160, 210),
+		scale = 1.4,
+		hatchTime = 120,
+	},
+}
+
+-- たまごの情報：zone が数字ならゾーンのたまご、文字なら特別なたまご
+function Config.eggInfo(zone: any)
+	if typeof(zone) == "number" then
+		local z = Config.Zones[zone]
+		if not z then
+			return nil
+		end
+		return {
+			name = z.name,
+			reward = z.reward,
+			color = z.eggColor,
+			scale = Config.EggScale[zone],
+			hatchTime = Config.HatchTime[zone],
+			odds = Config.HatchOdds[zone],
+		}
+	end
+	return Config.SpecialEggs[zone]
+end
+
+-- 黄金のたまごイベント：every 秒ごとに、duration 秒のあいだ（全部のサーバーで同じ時間）
+-- 30分ごと（毎時 0分と30分）から 3分間
+Config.GoldenEvent = { every = 1800, duration = 180 }
+
+------------------------------------------------------------------------
+-- ドラゴンのレベルと、わざ
+------------------------------------------------------------------------
+
+-- 経験値：敵をたおす・たまごを届ける・ルームランナーで走ると、連れているドラゴンに入る
+Config.MaxLevel = 30
+Config.SkillLevel = 5 -- このレベルで、わざを覚える
+function Config.levelFor(xp: number): number
+	return math.min(Config.MaxLevel, 1 + math.floor(math.sqrt(math.max(0, xp) / 10)))
+end
+function Config.xpForLevel(level: number): number
+	return 10 * (level - 1) ^ 2
+end
+-- レベルが 1 上がるごとに、こうげき力が 5% アップ
+function Config.levelPower(level: number): number
+	return 1 + 0.05 * (level - 1)
+end
+
+-- わざ（体の形ごと）。左の「✨ わざ」ボタンで、連れているドラゴン全員が使う
+-- kind: train（トレーニング倍率）/ speed（走る速さ）/ shield（ダメージなし）/ heal（回復）
+--       blast（まわりの敵に大ダメージ）/ quake（まわりの敵を止めてダメージ）
+Config.SkillCooldown = 25
+Config.Skills = {
+	small = {
+		name = "がんばれコール",
+		desc = "15秒 トレーニング 3倍",
+		kind = "train",
+		value = 3,
+		duration = 15,
+		color = Color3.fromRGB(120, 220, 255),
+	},
+	winged = {
+		name = "おいかぜ",
+		desc = "8秒 走る速さ +40",
+		kind = "speed",
+		value = 40,
+		duration = 8,
+		color = Color3.fromRGB(255, 240, 120),
+	},
+	guardian = {
+		name = "海風のまもり",
+		desc = "8秒 走る速さ +30",
+		kind = "speed",
+		value = 30,
+		duration = 8,
+		color = Color3.fromRGB(150, 255, 235),
+	},
+	magma = {
+		name = "マグマバリア",
+		desc = "6秒 ダメージを受けない",
+		kind = "shield",
+		duration = 6,
+		color = Color3.fromRGB(255, 120, 40),
+	},
+	phoenix = {
+		name = "いやしの炎",
+		desc = "体力を 60% 回復",
+		kind = "heal",
+		value = 0.6,
+		color = Color3.fromRGB(255, 160, 60),
+	},
+	triple = {
+		name = "トリプルブレス",
+		desc = "まわりの敵に こうげき力 ×6 のダメージ",
+		kind = "blast",
+		value = 6,
+		radius = 60,
+		color = Color3.fromRGB(255, 210, 80),
+	},
+	giant = {
+		name = "だいじしん",
+		desc = "まわりの敵を 4秒 止めて ×3 のダメージ",
+		kind = "quake",
+		value = 3,
+		duration = 4,
+		radius = 50,
+		color = Color3.fromRGB(170, 120, 70),
+	},
+	leviathan = {
+		name = "だいつなみ",
+		desc = "まわりの敵を 3秒 止めて ×3 のダメージ",
+		kind = "quake",
+		value = 3,
+		duration = 3,
+		radius = 60,
+		color = Color3.fromRGB(60, 170, 255),
+	},
+}
+
+------------------------------------------------------------------------
+-- 進化・交配・卒業
+------------------------------------------------------------------------
+
+-- 同じドラゴン 3体 → ひとつ上のレア度のドラゴン 1体
+Config.MergeCount = 3
+-- 交配にかかるコイン（2匹のレア度の合計で決まる）
+function Config.breedCost(rarityA: number, rarityB: number): number
+	return 50 * (rarityA + rarityB) ^ 2
+end
+-- 卒業させたときにもらえるコイン（レア度の順）
+Config.GraduateCoins = { 30, 100, 400, 1500, 6000 }
+
+------------------------------------------------------------------------
+-- 毎日のごほうび
+------------------------------------------------------------------------
+
+-- 日付は日本時間で切りかわる
+function Config.today(now: number?): number
+	return math.floor(((now or os.time()) + 9 * 3600) / 86400)
+end
+
+-- ログインボーナス（7日でひとまわり）。coins は「ごほうびの基本」の何倍か、egg = ふしぎなたまご
+Config.LoginRewards = {
+	{ coins = 1 },
+	{ coins = 2 },
+	{ coins = 3 },
+	{ coins = 4 },
+	{ coins = 5 },
+	{ coins = 6 },
+	{ coins = 5, egg = true },
+}
+
+-- 無料のたまご（ガチャ）：何秒ごとに 1回ひけるか
+Config.FreeEggInterval = 4 * 3600
+
+-- 今日のミッション（毎日 3つ）。stat = 数えるもの、targets = 目標の候補
+Config.MissionCount = 3
+Config.MissionKinds = {
+	{ kind = "delivered", text = "たまごを %d こ 届ける", targets = { 3, 5, 8 } },
+	{ kind = "kills", text = "敵を %d 体 たおす", targets = { 10, 20, 30 } },
+	{ kind = "hatched", text = "たまごを %d こ かえす", targets = { 2, 3, 5 } },
+	{ kind = "trained", text = "スピードを %d きたえる" }, -- 目標は、その人のスピードで決まる
+	{ kind = "zone", text = "%sのたまごを 1こ 届ける" }, -- 行ったことのある一番遠いゾーン
+	{ kind = "towerFloors", text = "塔で %d 階 クリアする", targets = { 3, 5, 8 } },
+}
+
+------------------------------------------------------------------------
+-- 実績（図鑑のコンプリートボーナスも、ここに入れる）
+------------------------------------------------------------------------
+
+-- stat：delivered / hatched / kills / bossKills / trained / merges / breeds / graduated / loginDays
+--       towerBest / book（図鑑の数）/ level（一番高いレベル）/ z6・z7（そのゾーンのたまごを届けた数）
+--       r4・r5（ウルトラレア・レジェンドに出会った数）
+Config.Achievements = {}
+do
+	local function add(id: string, name: string, stat: string, goal: number, reward: number, desc: string)
+		table.insert(
+			Config.Achievements,
+			{ id = id, name = name, stat = stat, goal = goal, reward = reward, desc = desc }
+		)
+	end
+	for _, g in { { 1, 50 }, { 10, 200 }, { 100, 2000 }, { 500, 10000 }, { 1000, 30000 } } do
+		add(
+			"deliver" .. g[1],
+			"たまご運び",
+			"delivered",
+			g[1],
+			g[2],
+			string.format("たまごを %d こ 届ける", g[1])
+		)
+	end
+	for _, g in { { 1, 50 }, { 10, 300 }, { 50, 2000 }, { 200, 10000 } } do
+		add(
+			"hatch" .. g[1],
+			"ふ化マスター",
+			"hatched",
+			g[1],
+			g[2],
+			string.format("たまごを %d こ かえす", g[1])
+		)
+	end
+	for _, g in { { 10, 100 }, { 100, 1000 }, { 1000, 8000 }, { 5000, 40000 } } do
+		add(
+			"kill" .. g[1],
+			"ドラゴンハンター",
+			"kills",
+			g[1],
+			g[2],
+			string.format("敵を %d 体 たおす", g[1])
+		)
+	end
+	for _, g in { { 1, 1000 }, { 10, 8000 }, { 50, 40000 } } do
+		add(
+			"boss" .. g[1],
+			"ボスたおし",
+			"bossKills",
+			g[1],
+			g[2],
+			string.format("ボスを %d 回 たおす", g[1])
+		)
+	end
+	for _, g in { { 1000, 300 }, { 10000, 3000 }, { 100000, 30000 } } do
+		add(
+			"train" .. g[1],
+			"きたえる足",
+			"trained",
+			g[1],
+			g[2],
+			string.format("スピードを %d きたえる", g[1])
+		)
+	end
+	-- 図鑑のコンプリートボーナス
+	for _, g in { { 10, 500 }, { 25, 2000 }, { 50, 8000 }, { 75, 20000 }, { 100, 100000 } } do
+		add(
+			"book" .. g[1],
+			"図鑑ボーナス",
+			"book",
+			g[1],
+			g[2],
+			string.format("図鑑を %d 種類 うめる", g[1])
+		)
+	end
+	add("r4", "はじめてのウルトラレア", "r4", 1, 2000, "ウルトラレアに 出会う")
+	add("r5", "はじめてのレジェンド", "r5", 1, 10000, "レジェンドに 出会う")
+	add("z6", "星空のたまご", "z6", 1, 3000, "星空のたまごを 届ける")
+	add("z7", "古代のひみつ", "z7", 1, 10000, "古代の遺跡のたまごを 届ける")
+	for _, g in { { 5, 500 }, { 10, 2000 }, { 20, 10000 }, { 30, 40000 } } do
+		add(
+			"tower" .. g[1],
+			"塔のぼり",
+			"towerBest",
+			g[1],
+			g[2],
+			string.format("塔の %d 階を クリアする", g[1])
+		)
+	end
+	for _, g in { { 7, 1000 }, { 30, 10000 } } do
+		add(
+			"login" .. g[1],
+			"まいにちログイン",
+			"loginDays",
+			g[1],
+			g[2],
+			string.format("%d 日 ログインする", g[1])
+		)
+	end
+	add("merge1", "はじめての進化", "merges", 1, 500, "ドラゴンを 進化させる")
+	add("merge10", "進化マスター", "merges", 10, 5000, "ドラゴンを 10回 進化させる")
+	add("breed1", "はじめての交配", "breeds", 1, 500, "ドラゴンを 交配する")
+	add("breed10", "交配マスター", "breeds", 10, 5000, "ドラゴンを 10回 交配する")
+	add("grad1", "はじめての卒業", "graduated", 1, 100, "ドラゴンを 卒業させる")
+	add("level10", "なかよしレベル", "level", 10, 2000, "ドラゴンを レベル 10 にする")
+	add("level30", "さいきょうの相棒", "level", 30, 30000, "ドラゴンを レベル 30 にする")
+end
+
+------------------------------------------------------------------------
+-- 塔のぼりモード
+------------------------------------------------------------------------
+
+-- 塔の部屋は、空の高いところ（y = arenaY）に、プレイヤーごとに作る
+Config.Tower = { arenaY = 900, spacing = 400, size = 120, rest = 3 }
+
+-- f 階の敵：5階ごとにボス
+function Config.towerFloor(f: number)
+	local boss = f % 5 == 0
+	local look = (math.floor((f - 1) / 2) % #Config.Zones) + 1
+	return {
+		count = if boss then 1 + math.floor(f / 10) else math.min(2 + math.floor(f / 3), 6),
+		boss = boss,
+		look = look,
+		hp = math.floor(30 * 1.3 ^ (f - 1)),
+		damage = 12 + 4 * f,
+		speed = math.min(14 + 2.5 * f, 90),
+		reward = math.floor(25 * 1.28 ^ (f - 1)),
+	}
 end
 
 return Config

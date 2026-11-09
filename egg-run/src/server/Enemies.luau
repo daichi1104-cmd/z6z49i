@@ -33,6 +33,28 @@ type Enemy = {
 	joints: { [string]: Rig.Joint },
 	look: Look,
 	walk: number,
+	hpText: TextLabel,
+	aggro: number,
+	leash: number,
+	noRespawn: boolean,
+	removed: boolean,
+	stunUntil: number,
+	tag: string?,
+	owner: Player?,
+}
+
+-- 塔などで、決まった強さの敵を出すときの設定
+export type SpawnOpts = {
+	hp: number?,
+	speed: number?,
+	damage: number?,
+	size: number?,
+	noRespawn: boolean?, -- たおされたら消える（復活しない）
+	aggro: number?,
+	leash: number?,
+	tag: string?,
+	owner: Player?,
+	name: string?,
 }
 
 local active: { Enemy } = {}
@@ -339,8 +361,50 @@ local function buildEnemy(zoneIndex: number, boss: boolean, size: number, color:
 			tailLen = 1,
 			tailW = 0.34,
 		})
-	elseif boss then
-		-- 最後のボス：やみの竜王
+	elseif zoneIndex == 6 then
+		-- 星空：ほしくずの竜（体に星の光）
+		look = beast(r, {
+			color = Color3.fromRGB(30, 34, 90),
+			belly = color,
+			mat = Enum.Material.Slate,
+			eye = Color3.fromRGB(255, 250, 160),
+			snout = 0.34,
+			horns = Color3.fromRGB(200, 240, 255),
+			spikes = color,
+			cracks = color,
+			tailLen = 1.3,
+			tailW = 0.24,
+			wings = true,
+			wingSpan = 1.3,
+			wingSkin = Color3.fromRGB(70, 60, 160),
+		})
+	elseif zoneIndex == 7 then
+		-- 古代の遺跡：こけむした石のゴーレム竜。ボスは翼のある守護竜
+		look = beast(r, {
+			color = Color3.fromRGB(120, 125, 110),
+			belly = Color3.fromRGB(90, 120, 70),
+			mat = Enum.Material.Cobblestone,
+			eye = color,
+			snout = 0.26,
+			horns = Color3.fromRGB(230, 190, 70),
+			spikes = Color3.fromRGB(80, 110, 60),
+			cracks = color,
+			tailLen = 0.9,
+			tailW = 0.36,
+			wings = boss,
+			boss = boss,
+			wingSpan = 1.9,
+			wingSkin = Color3.fromRGB(70, 110, 70),
+		})
+		if boss then
+			local light = Instance.new("PointLight")
+			light.Color = color
+			light.Range = 30
+			light.Brightness = 3
+			light.Parent = r.root
+		end
+	elseif boss and zoneIndex == 5 then
+		-- 雲の上のボス：やみの竜王
 		look = darkLord(r)
 	else
 		-- 雲の上：あらしの竜
@@ -361,9 +425,31 @@ local function buildEnemy(zoneIndex: number, boss: boolean, size: number, color:
 	return r:finish(), r.root, r.joints, look
 end
 
-function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: Instance)
+-- 敵の名前と数字（体力）を、ゲージの上に出す
+local function short(n: number): string
+	if n >= 1e6 then
+		return string.format("%.1fM", n / 1e6)
+	elseif n >= 1e4 then
+		return string.format("%.1fK", n / 1e3)
+	end
+	return tostring(math.ceil(n))
+end
+
+local function refreshGauge(e: Enemy)
+	local ratio = math.clamp(e.hp / e.maxHp, 0, 1)
+	e.bar.Size = UDim2.fromScale(ratio, 1)
+	-- 多いと緑、へると黄色、少ないと赤
+	e.bar.BackgroundColor3 = if ratio > 0.5
+		then Color3.fromRGB(90, 220, 90)
+		elseif ratio > 0.25 then Color3.fromRGB(255, 200, 50)
+		else Color3.fromRGB(255, 60, 60)
+	e.hpText.Text = string.format("%s  %s / %s", e.hpText:GetAttribute("Name") or "", short(e.hp), short(e.maxHp))
+end
+
+function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: Instance, opts: SpawnOpts?)
+	local o: SpawnOpts = opts or {}
 	local zone = Config.Zones[zoneIndex]
-	local size = if boss then 14 else 4 + zoneIndex * 0.6
+	local size = o.size or (if boss then 14 else 4 + zoneIndex * 0.6)
 
 	local model, body, joints, look = buildEnemy(zoneIndex, boss, size, zone.enemyColor)
 	body.Name = "Body"
@@ -384,33 +470,57 @@ function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: 
 		light.Parent = body
 	end
 
-	-- 体力ゲージ
+	-- 頭の上の体力ゲージ（名前と、のこりの体力の数字）
 	local gauge = Instance.new("BillboardGui")
-	gauge.Size = UDim2.new(size * 0.9, 0, 0.5 + size * 0.04, 0)
-	gauge.StudsOffset = Vector3.new(0, size * 0.75, 0)
-	gauge.MaxDistance = 120
+	gauge.Size = UDim2.fromOffset(if boss then 190 else 130, if boss then 40 else 32)
+	gauge.StudsOffset = Vector3.new(0, size * 0.75 + 1, 0)
+	gauge.MaxDistance = 140
 	gauge.LightInfluence = 0
+	gauge.AlwaysOnTop = false
 	gauge.Adornee = body
 	gauge.Parent = model
+	local hpText = Instance.new("TextLabel")
+	hpText.Size = UDim2.fromScale(1, 0.55)
+	hpText.BackgroundTransparency = 1
+	hpText.Font = Enum.Font.GothamBold
+	hpText.TextScaled = true
+	hpText.TextColor3 = if boss then Color3.fromRGB(255, 120, 120) else Color3.new(1, 1, 1)
+	hpText.TextStrokeTransparency = 0.2
+	hpText:SetAttribute(
+		"Name",
+		o.name or (if boss then "👑 " .. (zone.bossName or "ボス") else zone.enemyName or zone.name .. "の敵")
+	)
+	hpText.Parent = gauge
 	local back = Instance.new("Frame")
-	back.Size = UDim2.fromScale(1, 1)
+	back.Position = UDim2.fromScale(0, 0.6)
+	back.Size = UDim2.fromScale(1, 0.4)
 	back.BackgroundColor3 = Color3.fromRGB(40, 20, 20)
 	back.BorderSizePixel = 0
 	back.Parent = gauge
+	local backCorner = Instance.new("UICorner")
+	backCorner.CornerRadius = UDim.new(0.4, 0)
+	backCorner.Parent = back
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.new(0, 0, 0)
+	stroke.Thickness = 1.5
+	stroke.Parent = back
 	local bar = Instance.new("Frame")
 	bar.Size = UDim2.fromScale(1, 1)
-	bar.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+	bar.BackgroundColor3 = Color3.fromRGB(90, 220, 90)
 	bar.BorderSizePixel = 0
 	bar.Parent = back
+	local barCorner = Instance.new("UICorner")
+	barCorner.CornerRadius = UDim.new(0.4, 0)
+	barCorner.Parent = bar
 
-	local maxHp = zone.enemyHealth * (if boss then Config.BossHealthMult else 1)
-	table.insert(active, {
+	local maxHp = o.hp or zone.enemyHealth * (if boss then Config.BossHealthMult else 1)
+	local e: Enemy = {
 		model = model,
 		home = home,
 		pos = home,
 		facing = Vector3.new(0, 0, 1),
-		speed = if boss then zone.enemySpeed * 0.9 else zone.enemySpeed,
-		damage = if boss then zone.damage * 1.5 else zone.damage,
+		speed = o.speed or (if boss then zone.enemySpeed * 0.9 else zone.enemySpeed),
+		damage = o.damage or (if boss then zone.damage * 1.5 else zone.damage),
 		size = size,
 		phase = math.random() * 10,
 		lastHit = {},
@@ -428,7 +538,48 @@ function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: 
 		joints = joints,
 		look = look,
 		walk = 0,
-	})
+		hpText = hpText,
+		aggro = o.aggro or Config.EnemyAggroRange,
+		leash = o.leash or Config.EnemyLeashRange,
+		noRespawn = o.noRespawn == true,
+		removed = false,
+		stunUntil = 0,
+		tag = o.tag,
+		owner = o.owner,
+	}
+	refreshGauge(e)
+	table.insert(active, e)
+	return e
+end
+
+-- 敵を消す（塔の部屋を片づけるときなど）
+function Enemies.remove(e: Enemy)
+	if e.removed then
+		return
+	end
+	e.removed = true
+	e.dead = true
+	e.model:Destroy()
+	local i = table.find(active, e)
+	if i then
+		table.remove(active, i)
+	end
+end
+
+-- position から radius 以内の、生きている敵（わざで使う）
+function Enemies.findInRange(position: Vector3, radius: number): { Enemy }
+	local found = {}
+	for _, e in active do
+		if not e.dead and (e.body.Position - position).Magnitude <= radius then
+			table.insert(found, e)
+		end
+	end
+	return found
+end
+
+-- しばらく動けなくする
+function Enemies.stun(e: Enemy, seconds: number)
+	e.stunUntil = math.max(e.stunUntil, os.clock() + seconds)
 end
 
 local function flat(v: Vector3): Vector3
@@ -468,11 +619,13 @@ function Enemies.damage(e: Enemy, amount: number, attacker: Player?)
 		return
 	end
 	e.hp = math.max(0, e.hp - amount)
-	e.bar.Size = UDim2.fromScale(e.hp / e.maxHp, 1)
+	refreshGauge(e)
 	-- 当たったら一瞬白く光る
 	e.flash.Enabled = true
 	task.delay(0.1, function()
-		e.flash.Enabled = false
+		if not e.removed then
+			e.flash.Enabled = false
+		end
 	end)
 	if e.hp <= 0 then
 		e.dead = true
@@ -480,6 +633,9 @@ function Enemies.damage(e: Enemy, amount: number, attacker: Player?)
 		e.model.Parent = nil
 		if defeatHandler then
 			defeatHandler(attacker, e)
+		end
+		if e.noRespawn then
+			Enemies.remove(e)
 		end
 	end
 end
@@ -541,7 +697,7 @@ function Enemies.start(getDamageMult: (Player) -> number, onHit: ((Player, Vecto
 				if os.clock() >= e.respawnAt then
 					e.dead = false
 					e.hp = e.maxHp
-					e.bar.Size = UDim2.fromScale(1, 1)
+					refreshGauge(e)
 					e.pos = e.home
 					e.body.CFrame = CFrame.new(e.home + Vector3.new(0, e.size / 2, 0))
 					e.model.Parent = e.parent
@@ -550,7 +706,7 @@ function Enemies.start(getDamageMult: (Player) -> number, onHit: ((Player, Vecto
 			end
 			-- 近くにだれもいない敵は動かさない
 			local target = nil
-			local best = Config.EnemyAggroRange
+			local best = math.huge
 			local anyoneNear = false
 			for _, info in targets do
 				local p = flat(info.root.Position)
@@ -559,12 +715,17 @@ function Enemies.start(getDamageMult: (Player) -> number, onHit: ((Player, Vecto
 					anyoneNear = true
 				end
 				local d = (p - flat(e.pos)).Magnitude
-				if d < best and fromHome < Config.EnemyLeashRange then
+				if d < e.aggro and d < best and fromHome < e.leash then
 					best = d
 					target = info
 				end
 			end
 			if not anyoneNear then
+				continue
+			end
+			-- わざで止められている間は、その場で動かない
+			if os.clock() < e.stunUntil then
+				animate(e, t, 0, false)
 				continue
 			end
 
@@ -583,7 +744,8 @@ function Enemies.start(getDamageMult: (Player) -> number, onHit: ((Player, Vecto
 			end
 
 			local bob = math.abs(math.sin(e.walk)) * e.size * 0.04 * moving
-			local center = e.pos + Vector3.new(0, e.size / 2 + bob, 0)
+			-- 高さは持ち場の高さ（ふつうは地面 y = 0、塔の部屋は空の上）
+			local center = Vector3.new(e.pos.X, e.home.Y + e.size / 2 + bob, e.pos.Z)
 			e.body.CFrame = CFrame.lookAt(center, center + e.facing)
 			animate(e, t, moving, target ~= nil)
 

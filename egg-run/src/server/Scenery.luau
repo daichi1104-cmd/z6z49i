@@ -244,6 +244,91 @@ local function boulder(pos: Vector3, rng: Random, material: Enum.Material, size:
 	end
 end
 
+-- 星空：光る結晶のかたまり
+local CRYSTAL = { Color3.fromRGB(140, 120, 255), Color3.fromRGB(90, 220, 255), Color3.fromRGB(255, 150, 240) }
+local function crystal(pos: Vector3, rng: Random, size: number?)
+	local k = size or 1
+	local color = CRYSTAL[rng:NextInteger(1, #CRYSTAL)]
+	for _ = 1, rng:NextInteger(3, 5) do
+		local h = rng:NextNumber(3, 8) * k
+		local w = h * rng:NextNumber(0.25, 0.4)
+		part({
+			Size = v(w, h, w),
+			CFrame = CFrame.new(pos + v(rng:NextNumber(-1.5, 1.5), h * 0.4, rng:NextNumber(-1.5, 1.5)) * v(k, 1, k))
+				* CFrame.Angles(rng:NextNumber(-0.4, 0.4), rng:NextNumber(0, math.pi), rng:NextNumber(-0.4, 0.4)),
+			Color = color,
+			Material = Enum.Material.Neon,
+			Transparency = 0.15,
+			CanCollide = false,
+			CastShadow = false,
+		})
+	end
+end
+
+-- 遺跡：こわれた石の柱（ときどき、こけと倒れた柱）
+local STONE = { Color3.fromRGB(196, 186, 160), Color3.fromRGB(176, 168, 146), Color3.fromRGB(160, 156, 140) }
+local MOSS = Color3.fromRGB(86, 122, 60)
+local function ruinPillar(pos: Vector3, rng: Random, shadow: boolean)
+	local color = STONE[rng:NextInteger(1, #STONE)]
+	if rng:NextNumber() < 0.3 then
+		-- 倒れた柱
+		local len = rng:NextNumber(10, 18)
+		local a = rng:NextNumber(0, math.pi)
+		part({
+			Shape = Enum.PartType.Cylinder,
+			Size = v(len, 3.4, 3.4),
+			CFrame = CFrame.new(pos + v(0, 1.5, 0)) * CFrame.Angles(0, a, 0),
+			Color = color,
+			Material = Enum.Material.Limestone,
+			CastShadow = shadow,
+		})
+		return
+	end
+	local h = rng:NextNumber(8, 22)
+	part({
+		Size = v(5.5, 1.4, 5.5),
+		CFrame = CFrame.new(pos + v(0, 0.7, 0)),
+		Color = color,
+		Material = Enum.Material.Limestone,
+		CastShadow = shadow,
+	})
+	post(pos + v(0, 1.4 + h / 2, 0), 3.6, h, color, Enum.Material.Limestone, shadow)
+	-- 上がこわれて、ななめに欠けている
+	part({
+		Size = v(4.4, 1.2, 4.4),
+		CFrame = CFrame.new(pos + v(0, 1.4 + h, 0))
+			* CFrame.Angles(rng:NextNumber(-0.3, 0.3), 0, rng:NextNumber(-0.3, 0.3)),
+		Color = color,
+		Material = Enum.Material.Limestone,
+		CastShadow = shadow,
+	})
+	if rng:NextNumber() < 0.6 then
+		blob(pos + v(0, 1.4 + h * 0.3, 0), v(4.2, h * 0.35, 4.2), MOSS, Enum.Material.Grass, false)
+	end
+end
+
+-- 遺跡：石の門（2本の柱と、上の石）
+local function ruinArch(pos: Vector3, rng: Random, turn: number)
+	local color = STONE[rng:NextInteger(1, #STONE)]
+	local cf = CFrame.new(pos) * CFrame.Angles(0, turn, 0)
+	for _, x in { -7, 7 } do
+		part({
+			Size = v(3.5, 18, 3.5),
+			CFrame = cf * CFrame.new(x, 9, 0),
+			Color = color,
+			Material = Enum.Material.Limestone,
+		})
+	end
+	if rng:NextNumber() < 0.7 then
+		part({
+			Size = v(19, 3, 4.5),
+			CFrame = cf * CFrame.new(0, 19.5, 0),
+			Color = color,
+			Material = Enum.Material.Limestone,
+		})
+	end
+end
+
 -- 道の中（道と見えない壁のあいだ）に置く飾り。WorldBuilder から呼ぶ
 -- 地形を作ってから置くので、ここではためておくだけ（Scenery.build で置く）
 local pending: { () -> () } = {}
@@ -271,6 +356,14 @@ local function placeProp(kind: string, pos: Vector3, rng: Random)
 		end
 	elseif kind == "cloud" then
 		cloud(pos + v(0, rng:NextNumber(2, 8), 0), rng)
+	elseif kind == "star" then
+		crystal(pos, rng, rng:NextNumber(0.6, 1.1))
+	elseif kind == "ruins" then
+		if rng:NextNumber() < 0.75 then
+			ruinPillar(pos, rng, true)
+		else
+			tree(pos, rng, true)
+		end
 	end
 end
 
@@ -524,6 +617,143 @@ SCENES.cloud = function(z0: number, z1: number, rng: Random)
 	end)
 end
 
+-- 星空：足もとは夜空。まわりに浮かぶ岩の島と光る結晶、遠くの大きな星
+SCENES.star = function(z0: number, z1: number, rng: Random)
+	-- 浮かぶ岩の島（上に結晶）
+	each(z0, z1, 70, function(z)
+		for _, s in { -1, 1 } do
+			local x = sideX(rng, s, 80, 300)
+			local y = rng:NextNumber(-40, 30)
+			local r = rng:NextNumber(10, 22)
+			local at = v(x, y, z + rng:NextNumber(-20, 20))
+			ball(Enum.Material.Basalt, at, r)
+			ball(Enum.Material.Slate, at - v(0, r * 0.6, 0), r * 0.7)
+			ball(Enum.Material.Basalt, at - v(0, r * 1.1, 0), r * 0.4)
+			crystal(at + v(0, r * 0.75, 0), rng, r / 10)
+		end
+	end)
+	-- 遠くの大きな星（惑星）
+	each(z0, z1, 400, function(z)
+		for _, s in { -1, 1 } do
+			local d = rng:NextNumber(30, 70)
+			local planet = part({
+				Shape = Enum.PartType.Ball,
+				Size = v(d, d, d),
+				CFrame = CFrame.new(sideX(rng, s, 260, 340), rng:NextNumber(40, 160), z),
+				Color = CRYSTAL[rng:NextInteger(1, #CRYSTAL)]:Lerp(Color3.new(0, 0, 0), 0.3),
+				Material = Enum.Material.SmoothPlastic,
+				CanCollide = false,
+				CastShadow = false,
+			})
+			if rng:NextNumber() < 0.5 then
+				-- 星の輪
+				part({
+					Shape = Enum.PartType.Cylinder,
+					Size = v(0.5, d * 1.9, d * 1.9),
+					CFrame = planet.CFrame * CFrame.Angles(0, 0, math.pi / 2 + rng:NextNumber(-0.5, 0.5)),
+					Color = Color3.fromRGB(230, 220, 255),
+					Material = Enum.Material.Neon,
+					Transparency = 0.6,
+					CanCollide = false,
+					CastShadow = false,
+				})
+			end
+		end
+	end)
+	-- きらきらの星（小さな光る玉）
+	each(z0, z1, 25, function(z)
+		for _, s in { -1, 1 } do
+			local d = rng:NextNumber(0.6, 1.6)
+			part({
+				Shape = Enum.PartType.Ball,
+				Size = v(d, d, d),
+				CFrame = CFrame.new(sideX(rng, s, 60, 340), rng:NextNumber(-80, 120), z + rng:NextNumber(-12, 12)),
+				Color = Color3.fromRGB(255, 250, 220),
+				Material = Enum.Material.Neon,
+				CanCollide = false,
+				CastShadow = false,
+			})
+		end
+	end)
+end
+
+-- 古代の遺跡：草とこけの大地、石の段々ピラミッド、こわれた柱と門、森
+SCENES.ruins = function(z0: number, z1: number, rng: Random)
+	local G = Enum.Material.LeafyGrass
+	box(Enum.Material.Grass, -WIDE, WIDE, -16, 0, -z0, -z1)
+	each(z0, z1, 50, function(z)
+		for _, s in { -1, 1 } do
+			local r = rng:NextNumber(20, 40)
+			ball(G, v(sideX(rng, s, 120, 300), -r * 0.65, z + rng:NextNumber(-15, 15)), r)
+		end
+	end)
+	-- 石の段々ピラミッド（左右に1つずつ）
+	for i, s in { -1, 1 } do
+		local z = -(z0 + (z1 - z0) * (if i == 1 then 0.3 else 0.65))
+		local x = s * rng:NextNumber(200, 250)
+		local w = rng:NextNumber(110, 130)
+		local y = 0
+		while w > 16 do
+			terrain:FillBlock(CFrame.new(x, y + 5, z), v(w, 10, w), Enum.Material.Limestone)
+			y += 10
+			w -= 18
+		end
+		terrain:FillBlock(CFrame.new(x, y + 6, z), v(14, 12, 14), Enum.Material.Sandstone)
+		local top = part({
+			Name = "Shrine",
+			Shape = Enum.PartType.Ball,
+			Size = v(6, 6, 6),
+			Position = v(x, y + 16, z),
+			Color = Color3.fromRGB(90, 255, 175),
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+			CastShadow = false,
+		})
+		local light = Instance.new("PointLight")
+		light.Color = top.Color
+		light.Range = 50
+		light.Brightness = 3
+		light.Parent = top
+	end
+	local ok = { [Enum.Material.Grass] = true, [G] = true }
+	each(z0, z1, 26, function(z)
+		for _, s in { -1, 1 } do
+			local x = sideX(rng, s, 58, 280)
+			local at = onGround(x, z + rng:NextNumber(-6, 6), ok)
+			if at then
+				local shadow = math.abs(x) < FAR
+				local pick = rng:NextNumber()
+				if pick < 0.45 then
+					tree(at, rng, shadow)
+				elseif pick < 0.85 then
+					ruinPillar(at, rng, shadow)
+				else
+					bush(at, rng, shadow)
+				end
+			end
+		end
+	end)
+	each(z0, z1, 110, function(z)
+		local s = if rng:NextNumber() < 0.5 then -1 else 1
+		local at = onGround(sideX(rng, s, 70, 180), z, ok)
+		if at then
+			ruinArch(at, rng, rng:NextNumber(0, math.pi))
+		end
+	end)
+	each(z0, z1, 120, function(z)
+		for _, s in { -1, 1 } do
+			mountain(
+				v(sideX(rng, s, 300, 340), 0, z),
+				rng:NextNumber(60, 90),
+				rng:NextNumber(70, 110),
+				G,
+				Enum.Material.Rock,
+				rng
+			)
+		end
+	end)
+end
+
 -- ベースのまわり：草地と、森、遠くの雪山
 local function hubScene(hubHalf: number, rng: Random)
 	local G = Enum.Material.Grass
@@ -618,7 +848,7 @@ function Scenery.build(
 			scene(z.zStart, z.zEnd, rng)
 		end
 		-- 雲の上のゾーンは道の外に地面がないので、道の外からは入れないようにする
-		if z.decor == "cloud" then
+		if z.decor == "cloud" or z.decor == "star" then
 			for _, sgn in { -1, 1 } do
 				part({
 					Name = "Edge",

@@ -1,4 +1,5 @@
 -- ゲームの進行管理：保存、トレーニング、たまごの回収、ショップ、ドラゴンの仲間
+-- 毎日のごほうび（Progress）、塔のぼり（Tower）、黄金のたまごイベント、わざ、進化・交配・卒業
 
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
@@ -9,6 +10,8 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local WorldBuilder = require(script.Parent:WaitForChild("WorldBuilder"))
 local Enemies = require(script.Parent:WaitForChild("Enemies"))
 local Dragons = require(script.Parent:WaitForChild("Dragons"))
+local Progress = require(script.Parent:WaitForChild("Progress"))
+local Tower = require(script.Parent:WaitForChild("Tower"))
 
 local world = WorldBuilder.build()
 
@@ -30,6 +33,8 @@ local buyItem = remote("RemoteFunction", "BuyItem") :: RemoteFunction
 local knockback = remote("RemoteEvent", "Knockback") :: RemoteEvent
 local hatchEgg = remote("RemoteFunction", "HatchEgg") :: RemoteFunction
 local dragonAction = remote("RemoteFunction", "DragonAction") :: RemoteFunction
+local dailyAction = remote("RemoteFunction", "DailyAction") :: RemoteFunction
+local useSkill = remote("RemoteFunction", "UseSkill") :: RemoteFunction
 
 -- DataStore は Studio で API アクセスが無効だと失敗するので pcall で守る
 local store
@@ -37,33 +42,63 @@ pcall(function()
 	store = DataStoreService:GetDataStore(Config.DataStoreName)
 end)
 
+type Egg = { zone: any, readyAt: number, child: string? }
 type Data = {
 	speed: number,
 	coins: number,
 	eggs: number,
 	items: { [string]: boolean },
 	collection: { [string]: number }, -- たまごから生まれたドラゴン（id → 何体持っているか）
-	incubator: { { zone: number, readyAt: number } }, -- 檻の中のたまご（readyAt = かえる時刻）
-	dragon: string?,
+	seen: { [string]: boolean }, -- 一度でも仲間にしたドラゴン（図鑑に出る）
+	incubator: { Egg }, -- 檻の中のたまご（readyAt = かえる時刻、child = 交配で決まった中身）
+	team: { string }, -- ついて来るドラゴン（最大 3匹）
+	xp: { [string]: number }, -- ドラゴンごとの経験値
+	secretOpen: boolean, -- ひみつのゾーンの門が開いたか
+	stats: any,
+	achievements: any,
+	login: any,
+	daily: any,
+	freeEggAt: number,
 }
 
 local data: { [Player]: Data } = {}
-local carrying: { [Player]: number } = {} -- 運んでいるたまごのゾーン番号
+local carrying: { [Player]: any } = {} -- 運んでいるたまご（ゾーン番号、または "gold"）
 local pendingGain: { [Player]: number } = {}
 local lastWarn: { [Player]: number } = {}
+-- わざの効果（いつまで続くか）
+type Buffs = { trainUntil: number, train: number, speedUntil: number, speed: number, shieldUntil: number }
+local buffs: { [Player]: Buffs } = {}
+local skillReadyAt: { [Player]: number } = {}
 
 local function defaultData(): Data
-	return { speed = 0, coins = 0, eggs = 0, items = {}, collection = {}, incubator = {}, dragon = "Chibi" }
+	local d = {
+		speed = 0,
+		coins = 0,
+		eggs = 0,
+		items = {},
+		collection = {},
+		seen = {},
+		incubator = {},
+		team = { "Chibi" },
+		xp = {},
+		secretOpen = false,
+	}
+	Progress.ensure(d)
+	return d :: any
 end
 
--- はじめの仲間はだれでも、生まれたドラゴンは持っていれば連れて行ける
-local function canUseDragon(d: Data, id: string): boolean
+local function isStarter(id: string): boolean
 	for _, starter in Config.Dragons do
 		if starter.id == id then
 			return true
 		end
 	end
-	return (d.collection[id] or 0) > 0
+	return false
+end
+
+-- はじめの仲間はだれでも、生まれたドラゴンは持っていれば連れて行ける
+local function canUseDragon(d: Data, id: string): boolean
+	return isStarter(id) or (d.collection[id] or 0) > 0
 end
 
 local function loadData(player: Player): Data
@@ -74,37 +109,77 @@ local function loadData(player: Player): Data
 	local ok, value = pcall(function()
 		return store:GetAsync("player_" .. player.UserId)
 	end)
-	if ok and typeof(value) == "table" then
-		d.speed = tonumber(value.speed) or 0
-		d.coins = tonumber(value.coins) or 0
-		d.eggs = tonumber(value.eggs) or 0
-		if typeof(value.items) == "table" then
-			for id, owned in value.items do
-				d.items[tostring(id)] = owned == true
-			end
-		end
-		if typeof(value.collection) == "table" then
-			for id, count in value.collection do
-				if Config.findDragon(tostring(id)) and tonumber(count) then
-					d.collection[tostring(id)] = math.max(0, math.floor(tonumber(count) :: number))
-				end
-			end
-		end
-		if typeof(value.incubator) == "table" then
-			for _, egg in value.incubator do
-				local zone = typeof(egg) == "table" and tonumber(egg.zone)
-				local readyAt = typeof(egg) == "table" and tonumber(egg.readyAt)
-				if zone and readyAt and Config.Zones[zone] and #d.incubator < 5 then
-					table.insert(d.incubator, { zone = zone, readyAt = readyAt })
-				end
-			end
-		end
-		if typeof(value.dragon) == "string" and canUseDragon(d, value.dragon) then
-			d.dragon = value.dragon
-		elseif value.dragon == false then
-			d.dragon = nil
+	if not ok or typeof(value) ~= "table" then
+		return d
+	end
+	d.speed = tonumber(value.speed) or 0
+	d.coins = tonumber(value.coins) or 0
+	d.eggs = tonumber(value.eggs) or 0
+	if typeof(value.items) == "table" then
+		for id, owned in value.items do
+			d.items[tostring(id)] = owned == true
 		end
 	end
+	if typeof(value.collection) == "table" then
+		for id, count in value.collection do
+			if Config.findDragon(tostring(id)) and tonumber(count) then
+				d.collection[tostring(id)] = math.max(0, math.floor(tonumber(count) :: number))
+			end
+		end
+	end
+	if typeof(value.seen) == "table" then
+		for id, yes in value.seen do
+			if yes == true and Config.findDragon(tostring(id)) then
+				d.seen[tostring(id)] = true
+			end
+		end
+	end
+	-- 前の版のデータ：持っているドラゴンは、図鑑に出す
+	for id, count in d.collection do
+		if count > 0 then
+			d.seen[id] = true
+		end
+	end
+	if typeof(value.incubator) == "table" then
+		for _, egg in value.incubator do
+			if typeof(egg) ~= "table" then
+				continue
+			end
+			local zone = tonumber(egg.zone) or egg.zone
+			local readyAt = tonumber(egg.readyAt)
+			local child = if typeof(egg.child) == "string" and Config.findDragon(egg.child) then egg.child else nil
+			if Config.eggInfo(zone) and readyAt and #d.incubator < 5 then
+				table.insert(d.incubator, { zone = zone, readyAt = readyAt, child = child })
+			end
+		end
+	end
+	if typeof(value.xp) == "table" then
+		for id, xp in value.xp do
+			if Config.findDragon(tostring(id)) and tonumber(xp) then
+				d.xp[tostring(id)] = tonumber(xp) :: number
+			end
+		end
+	end
+	-- 連れているドラゴン（前の版は 1匹だけ：dragon）
+	if typeof(value.team) == "table" then
+		d.team = {}
+		for _, id in value.team do
+			if typeof(id) == "string" and canUseDragon(d, id) and not table.find(d.team, id) and #d.team < 3 then
+				table.insert(d.team, id)
+			end
+		end
+	elseif typeof(value.dragon) == "string" and canUseDragon(d, value.dragon) then
+		d.team = { value.dragon }
+	elseif value.dragon == false then
+		d.team = {}
+	end
+	d.secretOpen = value.secretOpen == true
+	d.stats = value.stats
+	d.achievements = value.achievements
+	d.login = value.login
+	d.daily = value.daily
+	d.freeEggAt = value.freeEggAt
+	Progress.ensure(d)
 	return d
 end
 
@@ -120,83 +195,128 @@ local function saveData(player: Player)
 			eggs = d.eggs,
 			items = d.items,
 			collection = d.collection,
+			seen = d.seen,
 			incubator = d.incubator,
-			dragon = d.dragon or false,
+			team = d.team,
+			xp = d.xp,
+			secretOpen = d.secretOpen,
+			stats = d.stats,
+			achievements = d.achievements,
+			login = d.login,
+			daily = d.daily,
+			freeEggAt = d.freeEggAt,
 		})
 	end)
 end
 
--- 持ち物とドラゴンから、強さを計算する
-local function equippedDragon(d: Data)
-	return Dragons.find(d.dragon)
-end
+--------------------------------------------------------------------------------
+-- 強さの計算（持ち物・連れているドラゴン・わざの効果）
+--------------------------------------------------------------------------------
 
-local function trainMult(d: Data): number
-	local m = 1
-	for _, item in Config.Items do
-		if d.items[item.id] and item.trainMult then
-			m = math.max(m, item.trainMult)
+local function teamDragons(d: Data): { any }
+	local list = {}
+	for _, id in d.team do
+		local dragon = Dragons.find(id)
+		if dragon then
+			table.insert(list, dragon)
 		end
 	end
-	local dragon = equippedDragon(d)
-	if dragon and dragon.trainMult then
-		m *= dragon.trainMult
+	return list
+end
+
+local function levelOf(d: Data, id: string): number
+	return Config.levelFor(d.xp[id] or 0)
+end
+
+local function itemBest(d: Data, key: string, start: number, pick: (number, number) -> number): number
+	local value = start
+	for _, item in Config.Items do
+		if d.items[item.id] and item[key] then
+			value = pick(value, item[key])
+		end
+	end
+	return value
+end
+
+local function buffOf(player: Player): Buffs
+	local b = buffs[player]
+	if not b then
+		b = { trainUntil = 0, train = 1, speedUntil = 0, speed = 0, shieldUntil = 0 }
+		buffs[player] = b
+	end
+	return b
+end
+
+local function trainMult(player: Player, d: Data): number
+	local m = itemBest(d, "trainMult", 1, math.max)
+	for _, dragon in teamDragons(d) do
+		if dragon.trainMult then
+			m *= dragon.trainMult
+		end
+	end
+	local b = buffOf(player)
+	if os.clock() < b.trainUntil then
+		m *= b.train
 	end
 	return m
 end
 
-local function damageMult(d: Data): number
-	local m = 1
-	for _, item in Config.Items do
-		if d.items[item.id] and item.damageMult then
-			m = math.min(m, item.damageMult)
-		end
+local function damageMult(player: Player, d: Data): number
+	if os.clock() < buffOf(player).shieldUntil then
+		return 0
 	end
-	local dragon = equippedDragon(d)
-	if dragon and dragon.damageMult then
-		m *= dragon.damageMult
+	local m = itemBest(d, "damageMult", 1, math.min)
+	for _, dragon in teamDragons(d) do
+		if dragon.damageMult then
+			m *= dragon.damageMult
+		end
 	end
 	return m
 end
 
 local function coinMult(d: Data): number
-	local dragon = equippedDragon(d)
-	return if dragon and dragon.coinMult then dragon.coinMult else 1
+	local m = 1
+	for _, dragon in teamDragons(d) do
+		if dragon.coinMult then
+			m *= dragon.coinMult
+		end
+	end
+	return m
+end
+
+local function regenOf(d: Data): number
+	local r = 0
+	for _, dragon in teamDragons(d) do
+		r += dragon.regen or 0
+	end
+	return r
 end
 
 local function maxHealth(d: Data): number
-	local h = 100
-	for _, item in Config.Items do
-		if d.items[item.id] and item.maxHealth then
-			h = math.max(h, item.maxHealth)
-		end
-	end
-	return h
+	return itemBest(d, "maxHealth", 100, math.max)
 end
 
 local function incubatorSlots(d: Data): number
-	local n = Config.IncubatorSlots
-	for _, item in Config.Items do
-		if d.items[item.id] and item.incubatorSlots then
-			n = math.max(n, item.incubatorSlots)
-		end
-	end
-	return n
+	return itemBest(d, "incubatorSlots", Config.IncubatorSlots, math.max)
+end
+
+local function teamSlots(d: Data): number
+	return itemBest(d, "teamSlots", Config.TeamSlots, math.max)
 end
 
 local function jumpPower(d: Data): number
-	local j = 50
-	for _, item in Config.Items do
-		if d.items[item.id] and item.jumpPower then
-			j = math.max(j, item.jumpPower)
-		end
-	end
-	return j
+	return itemBest(d, "jumpPower", 50, math.max)
 end
 
-local function walkSpeed(d: Data): number
-	local dragon = equippedDragon(d)
-	local bonus = if dragon and dragon.walkBonus then dragon.walkBonus else 0
+local function walkSpeed(player: Player, d: Data): number
+	local bonus = 0
+	for _, dragon in teamDragons(d) do
+		bonus += dragon.walkBonus or 0
+	end
+	local b = buffOf(player)
+	if os.clock() < b.speedUntil then
+		bonus += b.speed
+	end
 	return Config.walkSpeedFor(d.speed) + bonus
 end
 
@@ -209,13 +329,20 @@ local function syncStats(player: Player)
 	(stats:FindFirstChild("スピード") :: IntValue).Value = math.floor(d.speed);
 	(stats:FindFirstChild("コイン") :: IntValue).Value = math.floor(d.coins);
 	(stats:FindFirstChild("たまご") :: IntValue).Value = d.eggs
-	player:SetAttribute("WalkSpeed", walkSpeed(d))
-	player:SetAttribute("TrainMult", trainMult(d))
-	player:SetAttribute("Dragon", d.dragon or "")
-	-- 檻と図鑑の中身は、文字にしてクライアントへ渡す
+	player:SetAttribute("WalkSpeed", walkSpeed(player, d))
+	player:SetAttribute("TrainMult", trainMult(player, d))
+	player:SetAttribute("Dragon", d.team[1] or "")
+	-- 檻・図鑑・仲間・毎日のごほうびの中身は、文字にしてクライアントへ渡す
 	player:SetAttribute("Incubator", HttpService:JSONEncode(d.incubator))
 	player:SetAttribute("Collection", HttpService:JSONEncode(d.collection))
+	player:SetAttribute("Seen", HttpService:JSONEncode(d.seen))
+	player:SetAttribute("Team", HttpService:JSONEncode(d.team))
+	player:SetAttribute("Xp", HttpService:JSONEncode(d.xp))
+	player:SetAttribute("Profile", HttpService:JSONEncode(Progress.clientView(d)))
 	player:SetAttribute("IncubatorSlots", incubatorSlots(d))
+	player:SetAttribute("TeamSlots", teamSlots(d))
+	player:SetAttribute("SecretOpen", d.secretOpen)
+	player:SetAttribute("SkillReadyAt", skillReadyAt[player] or 0)
 end
 
 local function applyStats(player: Player, fullHeal: boolean?)
@@ -224,7 +351,7 @@ local function applyStats(player: Player, fullHeal: boolean?)
 	if not d or not humanoid then
 		return
 	end
-	humanoid.WalkSpeed = walkSpeed(d)
+	humanoid.WalkSpeed = walkSpeed(player, d)
 	local mh = maxHealth(d)
 	if humanoid.MaxHealth ~= mh then
 		humanoid.MaxHealth = mh
@@ -236,18 +363,144 @@ local function applyStats(player: Player, fullHeal: boolean?)
 	humanoid.JumpPower = jumpPower(d)
 end
 
--- 持ち物の一覧（クライアントのショップ表示用）
-local function markOwned(player: Player, folderName: string, id: string)
-	local f = player:FindFirstChild(folderName)
-	if f and not f:FindFirstChild(id) then
-		local v = Instance.new("BoolValue")
-		v.Name = id
-		v.Value = true
-		v.Parent = f
+local function save(player: Player)
+	task.spawn(saveData, player)
+end
+
+--------------------------------------------------------------------------------
+-- 実績・ひみつの門・経験値
+--------------------------------------------------------------------------------
+
+-- 数字が変わったあとに呼ぶ：実績の達成と、ひみつの門をしらべる
+local function checkProgress(player: Player)
+	local d = data[player]
+	if not d then
+		return
+	end
+	for _, a in Progress.checkAchievements(d) do
+		notify:FireClient(player, string.format("🏆 実績「%s」達成！ +%d コイン", a.desc, a.reward), true)
+	end
+	if
+		not d.secretOpen
+		and d.stats.bossKills >= Config.SecretZone.bossKills
+		and Progress.statValue(d, "book") >= Config.SecretZone.book
+	then
+		d.secretOpen = true
+		notify:FireClient(player, "🔓 ひみつの門が開いた！ 星空の先へ行ってみよう", true)
 	end
 end
 
+-- 連れているドラゴン全員に経験値
+local function addXp(player: Player, amount: number)
+	local d = data[player]
+	if not d or amount <= 0 then
+		return
+	end
+	local leveled = false
+	for _, id in d.team do
+		local before = levelOf(d, id)
+		d.xp[id] = (d.xp[id] or 0) + amount
+		local after = levelOf(d, id)
+		if after > before then
+			leveled = true
+			local dragon = Dragons.find(id)
+			local name = if dragon then dragon.name else id
+			notify:FireClient(player, string.format("⬆️ %s が レベル %d になった！", name, after), true)
+			if before < Config.SkillLevel and after >= Config.SkillLevel and dragon then
+				local skill = Config.Skills[dragon.shape]
+				if skill then
+					notify:FireClient(
+						player,
+						string.format(
+							"✨ わざ「%s」を覚えた！ 左の ✨わざ ボタンで使える",
+							skill.name
+						),
+						true
+					)
+				end
+			end
+		end
+	end
+	if leveled then
+		Dragons.refreshNames(player)
+		checkProgress(player)
+	end
+end
+
+Dragons.setLevelSource(function(player: Player, id: string)
+	local d = data[player]
+	return if d then levelOf(d, id) else 1
+end)
+
+local function equipTeam(player: Player)
+	local d = data[player]
+	if d then
+		Dragons.equip(player, d.team)
+	end
+end
+
+--------------------------------------------------------------------------------
+-- ドラゴンが生まれる
+--------------------------------------------------------------------------------
+
+-- odds（レア度の重み）から、レア度をえらぶ
+local function rollRarity(odds: { number }): number
+	local total = 0
+	for r, w in odds do
+		if #Config.HatchByRarity[r] > 0 then
+			total += w
+		end
+	end
+	local pick = math.random() * total
+	for r, w in odds do
+		if #Config.HatchByRarity[r] > 0 then
+			pick -= w
+			if pick <= 0 then
+				return r
+			end
+		end
+	end
+	return 1
+end
+
+local function rollDragon(odds: { number })
+	local list = Config.HatchByRarity[rollRarity(odds)]
+	return list[math.random(1, #list)]
+end
+
+-- ドラゴンを仲間に加える（新しく図鑑にのったら true）
+local function giveDragon(player: Player, id: string): boolean
+	local d = data[player]
+	local isNew = not d.seen[id]
+	d.collection[id] = (d.collection[id] or 0) + 1
+	d.seen[id] = true
+	return isNew
+end
+
+-- ふしぎなたまご（無料・ログイン・ミッション）：その場でかえる
+local function mysteryHatch(player: Player): (string, boolean)
+	local d = data[player]
+	local dragon = rollDragon(Config.HatchOdds[Progress.mysteryZone(d)])
+	local isNew = giveDragon(player, dragon.id)
+	Progress.bump(d, "hatched")
+	return dragon.id, isNew
+end
+
+-- 持っている数が 0 になったドラゴンは、連れていけない
+local function dropFromTeamIfGone(player: Player, d: Data, id: string)
+	if (d.collection[id] or 0) <= 0 and not isStarter(id) then
+		local i = table.find(d.team, id)
+		if i then
+			table.remove(d.team, i)
+			equipTeam(player)
+		end
+	end
+end
+
+--------------------------------------------------------------------------------
 -- たまごを運ぶ
+--------------------------------------------------------------------------------
+
 local function dropEgg(player: Player)
 	carrying[player] = nil
 	player:SetAttribute("CarryingZone", nil)
@@ -258,24 +511,31 @@ local function dropEgg(player: Player)
 	end
 end
 
-local function pickUpEgg(player: Player, zoneIndex: number)
+local function pickUpEgg(player: Player, zone: any)
 	local head = player.Character and player.Character:FindFirstChild("Head") :: BasePart?
-	if not head then
+	local info = Config.eggInfo(zone)
+	if not head or not info then
 		return
 	end
-	carrying[player] = zoneIndex
-	player:SetAttribute("CarryingZone", zoneIndex)
+	carrying[player] = zone
+	player:SetAttribute("CarryingZone", zone)
 
 	local egg = Instance.new("Part")
 	egg.Name = "CarriedEgg"
 	egg.Shape = Enum.PartType.Ball
-	local eggSize = 2.2 * Config.EggScale[zoneIndex]
+	local eggSize = 2.2 * info.scale
 	egg.Size = Vector3.one * eggSize
-	egg.Color = Config.Zones[zoneIndex].eggColor
+	egg.Color = info.color
 	egg.CanCollide = false
 	egg.CanQuery = false
 	egg.CanTouch = false
 	egg.Massless = true
+	if zone == "gold" then
+		egg.Material = Enum.Material.Foil
+		local sparkles = Instance.new("Sparkles")
+		sparkles.SparkleColor = info.color
+		sparkles.Parent = egg
+	end
 	local mesh = Instance.new("SpecialMesh")
 	mesh.MeshType = Enum.MeshType.Sphere
 	mesh.Scale = Vector3.new(1, 1.3, 1)
@@ -290,33 +550,48 @@ local function pickUpEgg(player: Player, zoneIndex: number)
 
 	notify:FireClient(
 		player,
-		string.format("🥚 %sのたまごをゲット！ ベースの巣まで運ぼう", Config.Zones[zoneIndex].name)
+		if zone == "gold"
+			then "🌟 黄金のたまごをゲット！ ベースの巣まで運ぼう"
+			else string.format("🥚 %sのたまごをゲット！ ベースの巣まで運ぼう", info.name)
 	)
 end
 
 local function deliverEgg(player: Player)
 	local d = data[player]
-	local zoneIndex = carrying[player]
-	if not d or not zoneIndex then
+	local zone = carrying[player]
+	local info = zone and Config.eggInfo(zone)
+	if not d or not info then
 		return
 	end
-	local reward = math.floor(Config.Zones[zoneIndex].reward * coinMult(d))
+	local reward = math.floor(info.reward * coinMult(d))
 	d.coins += reward
 	d.eggs += 1
 	dropEgg(player)
+	Progress.bump(d, "delivered")
+	if typeof(zone) == "number" then
+		Progress.bumpZone(d, zone)
+	end
 	-- 檻にあきがあれば入れる
 	if #d.incubator < incubatorSlots(d) then
-		local seconds = Config.HatchTime[zoneIndex]
-		table.insert(d.incubator, { zone = zoneIndex, readyAt = os.time() + seconds })
+		table.insert(d.incubator, { zone = zone, readyAt = os.time() + info.hatchTime })
 		notify:FireClient(player, string.format("🎉 たまごを届けた！ +%d コイン", reward), true)
-		notify:FireClient(player, string.format("🥚 たまごを檻に入れた（%d秒でかえるよ）", seconds))
+		notify:FireClient(
+			player,
+			string.format("🥚 たまごを檻に入れた（%d秒でかえるよ）", info.hatchTime)
+		)
 	else
 		notify:FireClient(player, string.format("🎉 たまごを届けた！ +%d コイン", reward), true)
 		notify:FireClient(player, "⚠️ 檻がいっぱい！ たまごをかえしてから運ぼう")
 	end
+	addXp(player, 4 * (if typeof(zone) == "number" then zone else 5))
+	checkProgress(player)
 	syncStats(player)
-	task.spawn(saveData, player)
+	save(player)
 end
+
+--------------------------------------------------------------------------------
+-- 参加・退出
+--------------------------------------------------------------------------------
 
 Players.PlayerAdded:Connect(function(player)
 	local stats = Instance.new("Folder")
@@ -327,31 +602,35 @@ Players.PlayerAdded:Connect(function(player)
 		v.Parent = stats
 	end
 	stats.Parent = player
-	for _, name in { "OwnedItems" } do
-		local f = Instance.new("Folder")
-		f.Name = name
-		f.Parent = player
-	end
+	local owned = Instance.new("Folder")
+	owned.Name = "OwnedItems"
+	owned.Parent = player
 
 	local d = loadData(player)
 	data[player] = d
-	for id, owned in d.items do
-		if owned then
-			markOwned(player, "OwnedItems", id)
+	for id, has in d.items do
+		if has then
+			local v = Instance.new("BoolValue")
+			v.Name = id
+			v.Value = true
+			v.Parent = owned
 		end
 	end
+	Progress.refreshDaily(d)
+	checkProgress(player)
 	syncStats(player)
 
 	local function onCharacter(character: Model)
 		dropEgg(player)
 		local humanoid = character:WaitForChild("Humanoid") :: Humanoid
 		applyStats(player, true)
-		Dragons.equip(player, d.dragon)
+		equipTeam(player)
 		humanoid.Died:Connect(function()
 			if carrying[player] then
 				notify:FireClient(player, "💥 やられて たまごを落としてしまった…")
 			end
 			dropEgg(player)
+			Tower.leave(player, false)
 		end)
 	end
 	player.CharacterAdded:Connect(onCharacter)
@@ -366,6 +645,8 @@ Players.PlayerRemoving:Connect(function(player)
 	carrying[player] = nil
 	pendingGain[player] = nil
 	lastWarn[player] = nil
+	buffs[player] = nil
+	skillReadyAt[player] = nil
 end)
 
 game:BindToClose(function()
@@ -375,15 +656,143 @@ game:BindToClose(function()
 	task.wait(2)
 end)
 
--- 定期的に保存
+-- 定期的に保存。日付が変わったら、ミッションを入れかえる
+task.spawn(function()
+	while true do
+		task.wait(60)
+		for _, player in Players:GetPlayers() do
+			local d = data[player]
+			if d then
+				local day = d.daily.day
+				Progress.refreshDaily(d)
+				if d.daily.day ~= day then
+					notify:FireClient(
+						player,
+						"📅 新しい日！ 今日のミッションとログインボーナスを見てみよう",
+						true
+					)
+					syncStats(player)
+				end
+			end
+		end
+	end
+end)
 task.spawn(function()
 	while true do
 		task.wait(90)
 		for _, player in Players:GetPlayers() do
-			task.spawn(saveData, player)
+			save(player)
 		end
 	end
 end)
+
+--------------------------------------------------------------------------------
+-- 黄金のたまごイベント（30分ごとに 3分間、道のどこかに黄金のたまごが出る）
+--------------------------------------------------------------------------------
+
+local goldenFolder = Instance.new("Folder")
+goldenFolder.Name = "GoldenEggs"
+goldenFolder.Parent = workspace
+local goldenEggs: { { part: BasePart, position: Vector3 } } = {}
+local goldenWindow = -1
+
+local function spawnGoldenEgg()
+	local z = math.random(200, Config.Zones[5].distance - 100)
+	local position = Vector3.new(math.random(-8, 8), 3, -z)
+	local info = Config.SpecialEggs.gold
+	local egg = Instance.new("Part")
+	egg.Name = "GoldenEgg"
+	egg.Shape = Enum.PartType.Ball
+	egg.Size = Vector3.one * 5
+	egg.Color = info.color
+	egg.Material = Enum.Material.Foil
+	egg.Anchored = true
+	egg.CanCollide = false
+	egg.CFrame = CFrame.new(position + Vector3.new(0, 1.5, 0))
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Scale = Vector3.new(1, 1.3, 1)
+	mesh.Parent = egg
+	local sparkles = Instance.new("Sparkles")
+	sparkles.SparkleColor = info.color
+	sparkles.Parent = egg
+	local light = Instance.new("PointLight")
+	light.Color = info.color
+	light.Range = 24
+	light.Brightness = 4
+	light.Parent = egg
+	-- 遠くからでも見える光の柱
+	local beam = Instance.new("Part")
+	beam.Name = "GoldenBeam"
+	beam.Shape = Enum.PartType.Cylinder
+	beam.Size = Vector3.new(120, 4, 4)
+	beam.CFrame = CFrame.new(position + Vector3.new(0, 60, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CanQuery = false
+	beam.CanTouch = false
+	beam.CastShadow = false
+	beam.Material = Enum.Material.Neon
+	beam.Color = info.color
+	beam.Transparency = 0.6
+	beam.Parent = egg
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(14, 0, 3, 0)
+	bb.StudsOffset = Vector3.new(0, 6, 0)
+	bb.LightInfluence = 0
+	bb.MaxDistance = 400
+	bb.Parent = egg
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.fromScale(1, 1)
+	text.BackgroundTransparency = 1
+	text.Font = Enum.Font.GothamBlack
+	text.TextScaled = true
+	text.TextColor3 = info.color
+	text.TextStrokeTransparency = 0.1
+	text.Text = "🌟 黄金のたまご"
+	text.Parent = bb
+	egg.Parent = goldenFolder
+	table.insert(goldenEggs, { part = egg, position = position })
+end
+
+task.spawn(function()
+	local ev = Config.GoldenEvent
+	while true do
+		local now = os.time()
+		local windowStart = now - now % ev.every
+		local active = now - windowStart < ev.duration
+		workspace:SetAttribute("GoldenEnd", windowStart + ev.duration)
+		workspace:SetAttribute("GoldenNext", windowStart + ev.every)
+		if active and goldenWindow ~= windowStart then
+			goldenWindow = windowStart
+			for _ = 1, 1 + math.floor(#Players:GetPlayers() / 3) do
+				spawnGoldenEgg()
+			end
+			for _, player in Players:GetPlayers() do
+				notify:FireClient(
+					player,
+					"🌟 黄金のたまごイベント！ 道のどこかに 光の柱が出たよ。急いで運ぼう！",
+					true
+				)
+			end
+		elseif not active and #goldenEggs > 0 then
+			for _, g in goldenEggs do
+				g.part:Destroy()
+			end
+			table.clear(goldenEggs)
+		end
+		-- くるくる回す
+		for _, g in goldenEggs do
+			g.part.CFrame = CFrame.new(g.position + Vector3.new(0, 1.5 + math.sin(os.clock() * 2) * 0.5, 0))
+				* CFrame.Angles(0, os.clock(), 0)
+		end
+		task.wait(0.1)
+	end
+end)
+
+--------------------------------------------------------------------------------
+-- メインループ：トレーニング、たまごを拾う・届ける、回復、ひみつの門
+--------------------------------------------------------------------------------
 
 -- ルームランナーのベルト（乗ると後ろへ流される）
 for _, tm in world.treadmills do
@@ -401,8 +810,8 @@ local function treadmillUnder(position: Vector3)
 	return nil
 end
 
--- メインループ：トレーニング、たまごを拾う・届ける
 local TICK = 0.25
+local buffActive: { [Player]: boolean } = {}
 task.spawn(function()
 	local tickCount = 0
 	while true do
@@ -418,6 +827,12 @@ task.spawn(function()
 			end
 			local pos = root.Position
 
+			-- ひみつの門：開いていない人が通りぬけたら、門の手前へもどす
+			if world.secretZ and not d.secretOpen and -pos.Z > world.secretZ + 3 and pos.Y < 200 then
+				character:PivotTo(CFrame.new(0, 4, -(world.secretZ - 20)))
+				notify:FireClient(player, "🔒 ひみつの門は まだ開いていない…")
+			end
+
 			-- たまご
 			if carrying[player] then
 				if (pos - world.nest).Magnitude < 12 then
@@ -430,20 +845,39 @@ task.spawn(function()
 						break
 					end
 				end
+				for i, g in goldenEggs do
+					if not carrying[player] and (pos - g.position).Magnitude < 7 then
+						g.part:Destroy()
+						table.remove(goldenEggs, i)
+						pickUpEgg(player, "gold")
+						break
+					end
+				end
 			end
 
 			-- フェニックスなどの回復
-			local dragon = equippedDragon(d)
-			if dragon and dragon.regen and humanoid.Health < humanoid.MaxHealth then
-				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + dragon.regen * TICK)
+			local regen = regenOf(d)
+			if regen > 0 and humanoid.Health < humanoid.MaxHealth then
+				humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + regen * TICK)
 			end
+
+			-- わざの効果が切れたら、走る速さをもどす
+			local b = buffOf(player)
+			local now = os.clock()
+			local anyBuff = now < b.speedUntil or now < b.trainUntil
+			if buffActive[player] and not anyBuff then
+				syncStats(player)
+				applyStats(player)
+			end
+			buffActive[player] = anyBuff
 
 			-- トレーニング
 			local tm = treadmillUnder(pos)
 			if tm then
 				if d.speed >= tm.required then
-					local gain = tm.gain * trainMult(d) * TICK
+					local gain = tm.gain * trainMult(player, d) * TICK
 					d.speed += gain
+					Progress.bump(d, "trained", gain)
 					pendingGain[player] = (pendingGain[player] or 0) + gain
 				elseif os.clock() - (lastWarn[player] or 0) > 3 then
 					lastWarn[player] = os.clock()
@@ -460,6 +894,8 @@ task.spawn(function()
 			for player, gain in pendingGain do
 				if gain > 0 then
 					trainGain:FireClient(player, gain)
+					addXp(player, 0.5)
+					checkProgress(player)
 					syncStats(player)
 					applyStats(player)
 				end
@@ -469,7 +905,10 @@ task.spawn(function()
 	end
 end)
 
+--------------------------------------------------------------------------------
 -- ショップ
+--------------------------------------------------------------------------------
+
 world.shopPrompt.Triggered:Connect(function(player)
 	openShop:FireClient(player)
 end)
@@ -496,27 +935,49 @@ buyItem.OnServerInvoke = function(player: Player, id: any)
 	end
 	d.coins -= item.price
 	d.items[id] = true
-	markOwned(player, "OwnedItems", id)
+	local owned = player:FindFirstChild("OwnedItems")
+	if owned and not owned:FindFirstChild(id) then
+		local v = Instance.new("BoolValue")
+		v.Name = id
+		v.Value = true
+		v.Parent = owned
+	end
 	syncStats(player)
 	applyStats(player)
-	task.spawn(saveData, player)
+	save(player)
 	return true, item.name .. " を手に入れた！"
 end
 
--- ドラゴン：action = "equip"（id のドラゴンを連れていく）/ "unequip"（お休み）
-dragonAction.OnServerInvoke = function(player: Player, action: any, id: any)
-	local d = data[player]
-	if not d or typeof(action) ~= "string" then
-		return false, "エラー"
+--------------------------------------------------------------------------------
+-- ドラゴン：連れていく・お休み・進化・卒業・交配
+--------------------------------------------------------------------------------
+
+local function hatchedDragon(d: Data, id: any)
+	local dragon = if typeof(id) == "string" then Dragons.find(id) else nil
+	if dragon and dragon.rarity and (d.collection[id] or 0) > 0 then
+		return dragon
 	end
-	if action == "unequip" then
-		d.dragon = nil
-		Dragons.equip(player, nil)
-		syncStats(player)
-		applyStats(player)
-		task.spawn(saveData, player)
-		return true, "ドラゴンをお休みさせた"
+	return nil
+end
+
+-- 交配で生まれる子ども：片方の親の「体の形」と、もう片方の「属性」を合わせる
+local function breedChild(a, b)
+	local options = {}
+	for _, pair in { { a, b }, { b, a } } do
+		local child = Config.findDragonByName(pair[2].element .. pair[1].noun)
+		if child then
+			table.insert(options, child)
+		end
 	end
+	if #options == 0 then
+		return a
+	end
+	return options[math.random(1, #options)]
+end
+
+local actions = {}
+
+actions.equip = function(player: Player, d: Data, id: any)
 	local dragon = if typeof(id) == "string" then Dragons.find(id) else nil
 	if not dragon then
 		return false, "そのドラゴンはいません"
@@ -524,56 +985,141 @@ dragonAction.OnServerInvoke = function(player: Player, action: any, id: any)
 	if not canUseDragon(d, dragon.id) then
 		return false, "そのドラゴンは まだ持っていません"
 	end
-	d.dragon = dragon.id
-	Dragons.equip(player, dragon.id)
-	syncStats(player)
-	applyStats(player)
-	task.spawn(saveData, player)
-	return true, dragon.name .. " がついて来るよ！"
+	if table.find(d.team, dragon.id) then
+		return false, "もう ついて来ています"
+	end
+	local msg = dragon.name .. " がついて来るよ！"
+	if #d.team >= teamSlots(d) then
+		-- 席がいっぱいなら、一番うしろの1匹と交代
+		local old = Dragons.find(d.team[#d.team])
+		d.team[#d.team] = dragon.id
+		msg = string.format(
+			"%s と交代して、%s がついて来るよ！",
+			if old then old.name else "仲間",
+			dragon.name
+		)
+	else
+		table.insert(d.team, dragon.id)
+	end
+	equipTeam(player)
+	return true, msg
 end
 
--- たまごをかえす：slot 番目のたまごの時間が来ていたら、ドラゴンが生まれる
-local function rollRarity(zoneIndex: number): number
-	local odds = Config.HatchOdds[zoneIndex]
-	local total = 0
-	for r, w in odds do
-		if #Config.HatchByRarity[r] > 0 then
-			total += w
-		end
+actions.unequip = function(player: Player, d: Data, id: any)
+	local i = if typeof(id) == "string" then table.find(d.team, id) else nil
+	if i then
+		table.remove(d.team, i)
+	else
+		table.clear(d.team)
 	end
-	local pick = math.random() * total
-	for r, w in odds do
-		if #Config.HatchByRarity[r] > 0 then
-			pick -= w
-			if pick <= 0 then
-				return r
-			end
-		end
-	end
-	return 1
+	equipTeam(player)
+	return true, "ドラゴンをお休みさせた"
 end
 
+-- 同じドラゴン 3体 → ひとつ上のレア度のドラゴン（できれば同じ体の形）
+actions.merge = function(player: Player, d: Data, id: any)
+	local dragon = hatchedDragon(d, id)
+	if not dragon then
+		return false, "そのドラゴンは いません"
+	end
+	if dragon.rarity >= 5 then
+		return false, "レジェンドは これ以上 進化できません"
+	end
+	if d.collection[dragon.id] < Config.MergeCount then
+		return false, string.format("同じドラゴンが %d体 いると 進化できます", Config.MergeCount)
+	end
+	d.collection[dragon.id] -= Config.MergeCount
+	local candidates = {}
+	for _, other in Config.HatchByRarity[dragon.rarity + 1] do
+		if other.shape == dragon.shape then
+			table.insert(candidates, other)
+		end
+	end
+	if #candidates == 0 then
+		candidates = Config.HatchByRarity[dragon.rarity + 1]
+	end
+	local result = candidates[math.random(1, #candidates)]
+	-- 経験値は、進化したドラゴンに引きつぐ
+	d.xp[result.id] = math.max(d.xp[result.id] or 0, d.xp[dragon.id] or 0)
+	local isNew = giveDragon(player, result.id)
+	Progress.bump(d, "merges")
+	dropFromTeamIfGone(player, d, dragon.id)
+	return true, string.format("✨ %s 3体が %s に進化した！", dragon.name, result.name), result.id, isNew
+end
+
+actions.graduate = function(player: Player, d: Data, id: any)
+	local dragon = hatchedDragon(d, id)
+	if not dragon then
+		return false, "そのドラゴンは いません"
+	end
+	local coins = Config.GraduateCoins[dragon.rarity]
+	d.collection[dragon.id] -= 1
+	d.coins += coins
+	Progress.bump(d, "graduated")
+	dropFromTeamIfGone(player, d, dragon.id)
+	return true, string.format("🎓 %s が卒業した。ありがとう！ +%d コイン", dragon.name, coins)
+end
+
+actions.breed = function(_player: Player, d: Data, idA: any, idB: any)
+	local a, b = hatchedDragon(d, idA), hatchedDragon(d, idB)
+	if not a or not b then
+		return false, "交配する 2匹を えらんでね"
+	end
+	if a == b and d.collection[a.id] < 2 then
+		return false, "同じドラゴンどうしは 2体 いないと 交配できません"
+	end
+	if #d.incubator >= incubatorSlots(d) then
+		return false, "檻がいっぱいです。たまごをかえしてから 交配しよう"
+	end
+	local cost = Config.breedCost(a.rarity, b.rarity)
+	if d.coins < cost then
+		return false, string.format("コインが %d 足りません", cost - math.floor(d.coins))
+	end
+	d.coins -= cost
+	local child = breedChild(a, b)
+	local seconds = Config.HatchTime[math.min(5, math.max(a.rarity, b.rarity))]
+	table.insert(d.incubator, { zone = "breed", readyAt = os.time() + seconds, child = child.id })
+	Progress.bump(d, "breeds")
+	return true, string.format("🧬 交配のたまごが 檻に入った！（%d秒でかえるよ）", seconds)
+end
+
+dragonAction.OnServerInvoke = function(player: Player, action: any, a: any, b: any)
+	local d = data[player]
+	local fn = typeof(action) == "string" and actions[action]
+	if not d or not fn then
+		return false, "エラー"
+	end
+	local ok, msg, id, isNew = fn(player, d, a, b)
+	if ok then
+		checkProgress(player)
+		syncStats(player)
+		applyStats(player)
+		save(player)
+	end
+	return ok, msg, id, isNew
+end
+
+-- 檻のたまごをかえす：slot 番目のたまごの時間が来ていたら、ドラゴンが生まれる
 hatchEgg.OnServerInvoke = function(player: Player, slot: any)
 	local d = data[player]
 	if not d or typeof(slot) ~= "number" then
 		return false
 	end
 	local egg = d.incubator[slot]
-	if not egg then
+	if not egg or egg.readyAt > os.time() then
 		return false
 	end
-	if egg.readyAt > os.time() then
-		return false
-	end
+	local info = Config.eggInfo(egg.zone)
 	table.remove(d.incubator, slot)
-	local rarity = rollRarity(egg.zone)
-	local list = Config.HatchByRarity[rarity]
-	local dragon = list[math.random(1, #list)]
-	local isNew = (d.collection[dragon.id] or 0) == 0
-	d.collection[dragon.id] = (d.collection[dragon.id] or 0) + 1
-	-- 生まれたドラゴンは仲間の一覧に入る（ついて来るのは、仲間画面でえらんだ1匹だけ）
+	local dragon = if egg.child then Dragons.find(egg.child) else nil
+	if not dragon then
+		dragon = rollDragon(if info and info.odds then info.odds else Config.HatchOdds[1])
+	end
+	local isNew = giveDragon(player, dragon.id)
+	Progress.bump(d, "hatched")
+	checkProgress(player)
 	syncStats(player)
-	task.spawn(saveData, player)
+	save(player)
 	return true, dragon.id, isNew
 end
 
@@ -581,19 +1127,186 @@ world.incubatorPrompt.Triggered:Connect(function(player)
 	openShop:FireClient(player, "cage")
 end)
 
--- ベースへ戻る（たまごを持っているときは使えない）
-goHome.OnServerEvent:Connect(function(player)
-	if carrying[player] then
-		notify:FireClient(player, "🥚 たまごを持っている間は ワープできません")
-		return
+--------------------------------------------------------------------------------
+-- 毎日のごほうび：ログインボーナス、ミッション、ミッション全部クリアのたまご、無料のたまご
+--------------------------------------------------------------------------------
+
+dailyAction.OnServerInvoke = function(player: Player, action: any, arg: any)
+	local d = data[player]
+	if not d then
+		return false, "エラー"
 	end
+	Progress.refreshDaily(d)
+	local ok, msg, id, isNew = false, "エラー", nil, nil
+	if action == "login" then
+		local reward = Progress.claimLogin(d)
+		if reward then
+			ok = true
+			msg = string.format("📅 ログインボーナス %d日目！ +%d コイン", reward.day, reward.coins)
+			if reward.egg then
+				id, isNew = mysteryHatch(player)
+			end
+		else
+			msg = "今日のぶんは もうもらったよ。また明日！"
+		end
+	elseif action == "mission" and typeof(arg) == "number" then
+		ok, msg = Progress.claimMission(d, arg)
+	elseif action == "bonus" then
+		if Progress.canClaimBonus(d) then
+			d.daily.bonus = true
+			ok, msg = true, "🎁 ミッションを全部クリア！ ふしぎなたまごがかえった"
+			id, isNew = mysteryHatch(player)
+		else
+			msg = "ミッションを 3つ全部 クリアすると もらえるよ"
+		end
+	elseif action == "free" then
+		if Progress.freeEggReady(d) then
+			d.freeEggAt = os.time() + Config.FreeEggInterval
+			ok, msg = true, "🎰 無料のたまごが かえった！"
+			id, isNew = mysteryHatch(player)
+		else
+			msg = "まだ ひけません"
+		end
+	end
+	if ok then
+		checkProgress(player)
+		syncStats(player)
+		save(player)
+	end
+	return ok, msg, id, isNew
+end
+
+--------------------------------------------------------------------------------
+-- わざ：連れているドラゴンのうち、レベル 5 以上の全員が使う
+--------------------------------------------------------------------------------
+
+useSkill.OnServerInvoke = function(player: Player)
+	local d = data[player]
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not d or not root or not humanoid or humanoid.Health <= 0 then
+		return false, "いまは使えません"
+	end
+	if os.time() < (skillReadyAt[player] or 0) then
+		return false, string.format("あと %d秒 で使えるよ", (skillReadyAt[player] or 0) - os.time())
+	end
+	local used = {}
+	local b = buffOf(player)
+	local now = os.clock()
+	for _, dragon in teamDragons(d) do
+		local level = levelOf(d, dragon.id)
+		local skill = Config.Skills[dragon.shape]
+		if not skill or level < Config.SkillLevel then
+			continue
+		end
+		-- レベルが高いほど、長く・強くなる
+		local longer = 1 + 0.03 * (level - Config.SkillLevel)
+		local power = (if dragon.attack then dragon.attack.damage else 10) * Config.levelPower(level)
+		if skill.kind == "train" then
+			b.trainUntil = now + skill.duration * longer
+			b.train = math.max(if now < b.trainUntil then b.train else 1, skill.value)
+		elseif skill.kind == "speed" then
+			b.speedUntil = now + skill.duration * longer
+			b.speed = skill.value
+		elseif skill.kind == "shield" then
+			b.shieldUntil = now + skill.duration * longer
+		elseif skill.kind == "heal" then
+			humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * skill.value)
+		elseif skill.kind == "blast" or skill.kind == "quake" then
+			for _, e in Enemies.findInRange(root.Position, skill.radius) do
+				if skill.kind == "quake" then
+					Enemies.stun(e, skill.duration * longer)
+				end
+				Enemies.damage(e, power * skill.value, player)
+			end
+		end
+		Dragons.effect(root.Position - Vector3.new(0, 2.5, 0), skill.color, skill.radius or 16)
+		table.insert(used, skill.name)
+	end
+	if #used == 0 then
+		return false,
+			string.format("ドラゴンが レベル %d になると わざを覚えるよ", Config.SkillLevel)
+	end
+	skillReadyAt[player] = os.time() + Config.SkillCooldown
+	syncStats(player)
+	applyStats(player)
+	return true, "✨ " .. table.concat(used, "・") .. "！"
+end
+
+--------------------------------------------------------------------------------
+-- ベースへ戻る・塔のぼり
+--------------------------------------------------------------------------------
+
+local function sendHome(player: Player)
 	local character = player.Character
 	if character then
 		character:PivotTo(world.spawn.CFrame + Vector3.new(0, 4, 0))
 	end
+end
+
+-- ベースへ戻る（たまごを持っているときは使えない。塔の中なら、塔を出る）
+goHome.OnServerEvent:Connect(function(player)
+	if Tower.isInside(player) then
+		Tower.leave(player, true)
+		return
+	end
+	if carrying[player] then
+		notify:FireClient(player, "🥚 たまごを持っている間は ワープできません")
+		return
+	end
+	sendHome(player)
 end)
 
+Tower.init({
+	notify = function(player: Player, msg: string, good: boolean?)
+		notify:FireClient(player, msg, good)
+	end,
+	home = sendHome,
+	cleared = function(player: Player, floor: number, reward: number)
+		local d = data[player]
+		if not d then
+			return
+		end
+		d.coins += reward
+		Progress.bump(d, "towerFloors")
+		d.stats.towerBest = math.max(d.stats.towerBest, floor)
+		notify:FireClient(player, string.format("🎉 %d階 クリア！ +%d コイン", floor, reward), true)
+		addXp(player, 3 + floor)
+		checkProgress(player)
+		syncStats(player)
+	end,
+	ended = function(player: Player, cleared: number)
+		local d = data[player]
+		if not d or not player.Parent then
+			return
+		end
+		notify:FireClient(
+			player,
+			string.format(
+				"🗼 塔から出た。今回 %d階 までクリア（さいこう %d階）",
+				cleared,
+				d.stats.towerBest
+			)
+		)
+		syncStats(player)
+		save(player)
+	end,
+})
+
+world.towerPrompt.Triggered:Connect(function(player)
+	if carrying[player] then
+		notify:FireClient(player, "🥚 たまごを持っている間は 塔に入れません")
+		return
+	end
+	local ok, msg = Tower.enter(player)
+	notify:FireClient(player, msg, ok)
+end)
+
+--------------------------------------------------------------------------------
 -- 敵とドラゴンを動かす
+--------------------------------------------------------------------------------
+
 Dragons.start()
 local enemyFolder = Instance.new("Folder")
 enemyFolder.Name = "Enemies"
@@ -601,22 +1314,35 @@ enemyFolder.Parent = workspace
 for _, home in world.enemyHomes do
 	Enemies.spawn(home.position, home.zoneIndex, home.boss, enemyFolder)
 end
--- 敵をたおしたら、たおしたプレイヤーにコイン
+-- 敵をたおしたら、たおしたプレイヤーにコインと経験値
 Enemies.onDefeated(function(player, enemy)
+	if enemy.tag == "tower" then
+		Tower.onEnemyDefeated(enemy)
+	end
 	local d = player and data[player]
 	if not player or not d then
 		return
 	end
-	local zone = Config.Zones[enemy.zoneIndex]
-	local bounty = math.max(1, math.floor(zone.reward * Config.EnemyBountyRate * (if enemy.boss then 5 else 1)))
-	d.coins += bounty
+	Progress.bump(d, "kills")
+	if enemy.boss then
+		Progress.bump(d, "bossKills")
+	end
+	if enemy.tag == "tower" then
+		addXp(player, 2 + (Tower.floorOf(player) or 1))
+	else
+		local zone = Config.Zones[enemy.zoneIndex]
+		local bounty = math.max(1, math.floor(zone.reward * Config.EnemyBountyRate * (if enemy.boss then 5 else 1)))
+		d.coins += bounty
+		local what = if enemy.boss then zone.bossName or "ボス" else zone.enemyName or zone.name .. "の敵"
+		notify:FireClient(player, string.format("⚔️ %sをたおした！ +%d コイン", what, bounty), true)
+		addXp(player, 2 * enemy.zoneIndex * (if enemy.boss then 5 else 1))
+	end
+	checkProgress(player)
 	syncStats(player)
-	local what = if enemy.boss then "ボス" else zone.name .. "の敵"
-	notify:FireClient(player, string.format("⚔️ %sをたおした！ +%d コイン", what, bounty), true)
 end)
 Enemies.start(function(player)
 	local d = data[player]
-	return if d then damageMult(d) else 1
+	return if d then damageMult(player, d) else 1
 end, function(player, direction)
 	knockback:FireClient(player, direction)
 end)

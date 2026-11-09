@@ -275,6 +275,109 @@ local function buildIncubator(): ProximityPrompt
 	return prompt
 end
 
+-- 塔のぼりの入口（ベースの左うしろ）。中に入ると、空の上の部屋へワープする
+local function buildTower(): ProximityPrompt
+	local origin = Vector3.new(-50, 0, 55)
+	local stone = Color3.fromRGB(120, 112, 140)
+	local model = Instance.new("Model")
+	model.Name = "TowerGate"
+	model.Parent = world
+	-- だんだん細くなる塔
+	local tiers = { { 18, 16 }, { 15, 14 }, { 12, 12 }, { 9, 10 } }
+	local y = 0
+	for i, t in tiers do
+		local w, h = t[1], t[2]
+		part({
+			Name = "Tier",
+			Size = Vector3.new(w, h, w),
+			Position = origin + Vector3.new(0, y + h / 2, 0),
+			Color = if i % 2 == 0 then stone else stone:Lerp(Color3.new(1, 1, 1), 0.15),
+			Material = Enum.Material.Cobblestone,
+			Parent = model,
+		})
+		-- 角の光る石
+		for _, c in { { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } } do
+			part({
+				Name = "Gem",
+				Size = Vector3.new(1.2, 1.2, 1.2),
+				Position = origin + Vector3.new(c[1] * w / 2, y + h, c[2] * w / 2),
+				Color = Color3.fromRGB(170, 120, 255),
+				Material = Enum.Material.Neon,
+				CanCollide = false,
+				Parent = model,
+			})
+		end
+		y += h
+	end
+	local top = part({
+		Name = "Top",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(6, 6, 6),
+		Position = origin + Vector3.new(0, y + 3, 0),
+		Color = Color3.fromRGB(190, 140, 255),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		Parent = model,
+	})
+	local light = Instance.new("PointLight")
+	light.Color = top.Color
+	light.Range = 40
+	light.Brightness = 3
+	light.Parent = top
+	label(top, "🗼 塔のぼり", 6, 18, 4, Color3.fromRGB(220, 200, 255))
+	-- 入口（ベースの中心がわ）
+	local door = part({
+		Name = "Door",
+		Size = Vector3.new(1, 9, 7),
+		Position = origin + Vector3.new(9.2, 4.5, 0),
+		Color = Color3.fromRGB(60, 30, 90),
+		Material = Enum.Material.Neon,
+		Transparency = 0.2,
+		CanCollide = false,
+		Parent = model,
+	})
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "塔に入る"
+	prompt.ObjectText = "1階ずつ 敵をたおして 上へ（5階ごとにボス）"
+	prompt.HoldDuration = 0.5
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = door
+	return prompt
+end
+
+-- ひみつのゾーンの門（条件を満たした人の画面では、通りぬけられるようになる）
+local function buildSecretGate(zStart: number): BasePart
+	local gate = part({
+		Name = "SecretGate",
+		Size = Vector3.new(TRACK_WIDTH, 40, 2),
+		Position = Vector3.new(0, 20, -zStart + 6),
+		Color = Color3.fromRGB(70, 230, 150),
+		Material = Enum.Material.ForceField,
+		Transparency = 0.3,
+	})
+	local sign = part({
+		Name = "SecretSign",
+		Size = Vector3.new(1, 1, 1),
+		Position = Vector3.new(0, 10, -zStart + 8),
+		Transparency = 1,
+		CanCollide = false,
+	})
+	label(
+		sign,
+		string.format(
+			"🔒 ひみつの門\nやみの竜王を %d回 たおして\n図鑑を %d種類 集めると 開く",
+			Config.SecretZone.bossKills,
+			Config.SecretZone.book
+		),
+		0,
+		30,
+		9,
+		Color3.fromRGB(170, 255, 210)
+	)
+	return gate
+end
+
 local function buildShop(): ProximityPrompt
 	local origin = Vector3.new(-52, 0, 5)
 	local wallColor = Color3.fromRGB(255, 245, 225)
@@ -335,6 +438,8 @@ local ROAD_MATERIAL = {
 	pine = Enum.Material.Cobblestone,
 	rock = Enum.Material.Asphalt,
 	cloud = Enum.Material.Marble,
+	star = Enum.Material.Glass,
+	ruins = Enum.Material.Cobblestone,
 }
 
 local function buildZone(index: number, zone, zStart: number, zEnd: number, rng: Random)
@@ -349,9 +454,10 @@ local function buildZone(index: number, zone, zStart: number, zEnd: number, rng:
 		Material = if zone.decor == "pine"
 			then Enum.Material.Snow
 			elseif zone.decor == "cactus" then Enum.Material.Sand
+			elseif zone.decor == "star" then Enum.Material.Slate
 			else Enum.Material.Grass,
-		-- 雲の上のほかは、見た目を地形にまかせて、この部品は歩く床としてだけ使う
-		Transparency = if zone.decor == "cloud" then 0 else 1,
+		-- 雲の上と星空のほかは、見た目を地形にまかせて、この部品は歩く床としてだけ使う
+		Transparency = if zone.decor == "cloud" or zone.decor == "star" then 0 else 1,
 	})
 	part({
 		Name = "Road" .. index,
@@ -388,7 +494,8 @@ local function buildZone(index: number, zone, zStart: number, zEnd: number, rng:
 	label(
 		beam,
 		string.format(
-			"ゾーン %d：%s\n敵の速さ %d ／ たまご %d コイン",
+			"%sゾーン %d：%s\n敵の速さ %d ／ たまご %d コイン",
+			if zone.secret then "🔒 ひみつの" else "",
 			index,
 			zone.name,
 			zone.enemySpeed,
@@ -604,14 +711,22 @@ function WorldBuilder.build()
 
 	local shopPrompt = buildShop()
 	local incubatorPrompt = buildIncubator()
+	local towerPrompt = buildTower()
 
 	local rng = Random.new(20261108)
 	local eggs = {}
 	local enemyHomes = {}
 	local zStart = HUB_HALF
 	local sceneZones = {}
+	local secretZ = nil
+	local zoneStarts = {}
 	for i, zone in Config.Zones do
 		local zEnd = zone.distance + 60
+		zoneStarts[i] = zStart
+		if zone.secret then
+			secretZ = zStart - 6
+			buildSecretGate(zStart)
+		end
 		table.insert(sceneZones, { decor = zone.decor, zStart = zStart, zEnd = zEnd })
 		local egg, homes = buildZone(i, zone, zStart, zEnd, rng)
 		table.insert(eggs, egg)
@@ -660,6 +775,10 @@ function WorldBuilder.build()
 		enemyHomes = enemyHomes,
 		shopPrompt = shopPrompt,
 		incubatorPrompt = incubatorPrompt,
+		towerPrompt = towerPrompt,
+		secretZ = secretZ, -- ひみつの門の位置（ベースからの距離）
+		zoneStarts = zoneStarts,
+		roadEnd = zStart,
 	}
 end
 

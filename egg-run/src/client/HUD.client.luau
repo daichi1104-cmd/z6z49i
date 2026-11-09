@@ -16,6 +16,8 @@ local buyItem = remotes:WaitForChild("BuyItem") :: RemoteFunction
 local knockback = remotes:WaitForChild("Knockback") :: RemoteEvent
 local dragonAction = remotes:WaitForChild("DragonAction") :: RemoteFunction
 local hatchEgg = remotes:WaitForChild("HatchEgg") :: RemoteFunction
+local dailyAction = remotes:WaitForChild("DailyAction") :: RemoteFunction
+local useSkill = remotes:WaitForChild("UseSkill") :: RemoteFunction
 
 local player = Players.LocalPlayer
 local stats = player:WaitForChild("leaderstats")
@@ -40,6 +42,39 @@ local function incubator(): { { zone: number, readyAt: number } }
 end
 local function collection(): { [string]: number }
 	return decode("Collection")
+end
+-- 一度でも仲間にしたドラゴン（図鑑に出る）
+local function seen(): { [string]: boolean }
+	return decode("Seen")
+end
+-- ついて来ているドラゴン（id の並び）
+local function team(): { string }
+	return decode("Team")
+end
+local function levelOf(id: string): number
+	return Config.levelFor(decode("Xp")[id] or 0)
+end
+-- 毎日のごほうび・実績など
+local function profile(): any
+	return decode("Profile")
+end
+local function nowTime(): number
+	return workspace:GetServerTimeNow()
+end
+local function longClock(seconds: number): string
+	seconds = math.max(0, math.floor(seconds))
+	if seconds >= 3600 then
+		return string.format("%d:%02d:%02d", seconds // 3600, seconds % 3600 // 60, seconds % 60)
+	end
+	return string.format("%d:%02d", seconds // 60, seconds % 60)
+end
+local function short(n: number): string
+	if n >= 1e6 then
+		return string.format("%.1fM", n / 1e6)
+	elseif n >= 1e4 then
+		return string.format("%.1fK", n / 1e3)
+	end
+	return tostring(math.floor(n))
 end
 local function secondsLeft(egg): number
 	return math.max(0, math.ceil(egg.readyAt - workspace:GetServerTimeNow()))
@@ -186,8 +221,15 @@ local carryText = text(carryBanner, {
 
 RunService.RenderStepped:Connect(function()
 	local zone = player:GetAttribute("CarryingZone")
-	carryBanner.Visible = zone ~= nil
-	if zone then
+	local floor = player:GetAttribute("TowerFloor")
+	carryBanner.Visible = zone ~= nil or floor ~= nil
+	if floor then
+		carryBanner.BackgroundColor3 = Color3.fromRGB(150, 110, 255)
+		carryText.Text = string.format("🗼 塔 %d階　敵を全部たおそう！", floor)
+	elseif zone then
+		carryBanner.BackgroundColor3 = if zone == "gold"
+			then Color3.fromRGB(255, 215, 60)
+			else Color3.fromRGB(255, 170, 40)
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if root then
 			local d = (Vector3.new(root.Position.X, 0, root.Position.Z) - NEST).Magnitude
@@ -300,8 +342,8 @@ corner(closeButton, 8)
 local tabs = {}
 local function makeTab(label: string, x: number)
 	local b = Instance.new("TextButton")
-	b.Position = UDim2.new(x, 6, 0, 46)
-	b.Size = UDim2.new(1 / 4, -10, 0, 34)
+	b.Position = UDim2.new(x, 4, 0, 46)
+	b.Size = UDim2.new(1 / 6, -8, 0, 34)
 	b.Font = Enum.Font.GothamBold
 	b.TextScaled = true
 	b.TextColor3 = Color3.new(1, 1, 1)
@@ -311,10 +353,12 @@ local function makeTab(label: string, x: number)
 	corner(b, 8)
 	return b
 end
-tabs.items = makeTab("👟 アイテム", 0)
-tabs.dragons = makeTab("🐉 仲間", 1 / 4)
-tabs.book = makeTab("📖 図鑑", 2 / 4)
-tabs.cage = makeTab("🥚 檻", 3 / 4)
+tabs.items = makeTab("👟 道具", 0)
+tabs.dragons = makeTab("🐉 仲間", 1 / 6)
+tabs.book = makeTab("📖 図鑑", 2 / 6)
+tabs.cage = makeTab("🥚 檻", 3 / 6)
+tabs.daily = makeTab("📅 毎日", 4 / 6)
+tabs.trophy = makeTab("🏆 実績", 5 / 6)
 
 local list = Instance.new("ScrollingFrame")
 list.Position = UDim2.new(0, 8, 0, 88)
@@ -399,19 +443,127 @@ end
 local GREEN = Color3.fromRGB(50, 170, 80)
 local GRAY = Color3.fromRGB(90, 90, 105)
 local BLUE = Color3.fromRGB(60, 120, 220)
+local ORANGE = Color3.fromRGB(220, 130, 40)
+local PURPLE = Color3.fromRGB(150, 80, 210)
+
+-- 開いているタブの中で、毎秒書きかえるもの（残り時間など）
+local liveUpdaters: { () -> () } = {}
+
+-- ボタンが2つ以上ある行。buttons = { { text, color, enabled, onClick } }（右から順にならぶ）
+type RowButton = { text: string, color: Color3, enabled: boolean, onClick: () -> () }
+local function actionRow(
+	order: number,
+	name: string,
+	desc: string,
+	nameColor: Color3?,
+	buttons: { RowButton }
+): { TextButton }
+	local f = Instance.new("Frame")
+	f.LayoutOrder = order
+	f.Size = UDim2.new(1, -8, 0, 66)
+	f.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+	f.ZIndex = 6
+	f.Parent = list
+	corner(f, 10)
+	local bw = if #buttons >= 3 then 64 elseif #buttons == 2 then 84 else 110
+	local used = #buttons * (bw + 6) + 6
+	text(f, {
+		Position = UDim2.new(0, 10, 0, 6),
+		Size = UDim2.new(1, -used - 14, 0, 26),
+		Text = name,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = nameColor or Color3.new(1, 1, 1),
+		ZIndex = 7,
+	})
+	text(f, {
+		Position = UDim2.new(0, 10, 0, 34),
+		Size = UDim2.new(1, -used - 14, 0, 24),
+		Text = desc,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = Color3.fromRGB(200, 200, 220),
+		Font = Enum.Font.Gotham,
+		ZIndex = 7,
+	})
+	local made = {}
+	for i, info in buttons do
+		local b = Instance.new("TextButton")
+		b.AnchorPoint = Vector2.new(1, 0.5)
+		b.Position = UDim2.new(1, -6 - (i - 1) * (bw + 6), 0.5, 0)
+		b.Size = UDim2.new(0, bw, 0, 46)
+		b.BackgroundColor3 = if info.enabled then info.color else GRAY
+		b.AutoButtonColor = info.enabled
+		b.Font = Enum.Font.GothamBold
+		b.TextScaled = true
+		b.TextColor3 = Color3.new(1, 1, 1)
+		b.Text = info.text
+		b.ZIndex = 7
+		b.Parent = f
+		corner(b, 8)
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 4)
+		pad.PaddingRight = UDim.new(0, 4)
+		pad.PaddingTop = UDim.new(0, 4)
+		pad.PaddingBottom = UDim.new(0, 4)
+		pad.Parent = b
+		if info.enabled then
+			b.Activated:Connect(function()
+				if busy then
+					return
+				end
+				busy = true
+				info.onClick()
+				busy = false
+				render()
+			end)
+		end
+		table.insert(made, b)
+	end
+	return made
+end
+
+-- 見出し（タブの中の区切り）
+local function heading(order: number, label: string)
+	local f = Instance.new("Frame")
+	f.LayoutOrder = order
+	f.Size = UDim2.new(1, -8, 0, 26)
+	f.BackgroundTransparency = 1
+	f.ZIndex = 6
+	f.Parent = list
+	text(f, {
+		Size = UDim2.fromScale(1, 1),
+		Text = label,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = Color3.fromRGB(255, 225, 130),
+		ZIndex = 7,
+	})
+end
 
 -- 檻のタブの、残り時間を毎秒書きかえるための表
 local cageRows: { { desc: TextLabel, button: TextButton, slot: number } } = {}
-local showHatch: (string, boolean) -> ()
+local updateCageRows: () -> ()
+local showHatch: (string, boolean, string?) -> ()
 
--- ドラゴンの説明に、こうげき力をつけ足す
-local function dragonDesc(dragon): string
+-- ドラゴンの説明に、こうげき力をつけ足す（level があれば、レベルで強くなった数字）
+local function dragonDesc(dragon, level: number?): string
 	local a = dragon.attack
 	if not a then
 		return dragon.desc
 	end
 	local shots = if a.shots > 1 then string.format("×%d", a.shots) else ""
-	return string.format("%s ／ ⚔️%d%s", dragon.desc, a.damage, shots)
+	local damage = a.damage * Config.levelPower(level or 1)
+	return string.format("%s ／ ⚔️%d%s", dragon.desc, math.floor(damage + 0.5), shots)
+end
+
+-- わざの説明（まだ覚えていなければ、何レベルで覚えるか）
+local function skillDesc(dragon, level: number): string
+	local skill = Config.Skills[dragon.shape]
+	if not skill then
+		return ""
+	end
+	if level >= Config.SkillLevel then
+		return string.format("✨%s：%s", skill.name, skill.desc)
+	end
+	return string.format("✨%s（Lv%dで覚える）", skill.name, Config.SkillLevel)
 end
 
 -- 図鑑：ドラゴンの絵を、四角と丸の部品で描く（右向き、正方形の中に 0〜1 の位置で置く）
@@ -608,13 +760,34 @@ local bookSelected: string? = nil
 
 local function renderBook()
 	local owned = collection()
+	local met = seen()
 	local found = 0
 	for _, dragon in Config.HatchDragons do
-		if (owned[dragon.id] or 0) > 0 then
+		if met[dragon.id] then
 			found += 1
 		end
 	end
 	shopTitle.Text = string.format("📖 ドラゴン図鑑　%d / %d", found, #Config.HatchDragons)
+
+	-- 図鑑ボーナス：次は何種類で、いくらもらえるか
+	local nextGoal
+	for _, a in Config.Achievements do
+		if a.stat == "book" and found < a.goal then
+			nextGoal = a
+			break
+		end
+	end
+	heading(
+		-1,
+		if nextGoal
+			then string.format(
+				"🎁 図鑑ボーナス：%d種類で 🪙%s（あと %d）",
+				nextGoal.goal,
+				short(nextGoal.reward),
+				nextGoal.goal - found
+			)
+			else "🎁 図鑑ボーナス：コンプリート！ おめでとう！"
+	)
 
 	-- 上：えらんだドラゴンのくわしい説明
 	local detail = Instance.new("Frame")
@@ -659,7 +832,7 @@ local function renderBook()
 			return
 		end
 		local count = owned[dragon.id] or 0
-		local known = count > 0
+		local known = met[dragon.id] == true
 		local rarity = Config.Rarities[dragon.rarity]
 		drawDragon(picBox, dragon, known, 8)
 		local number = string.format("No.%03d　", tonumber(string.sub(dragon.id, 2)) or 0)
@@ -692,7 +865,7 @@ local function renderBook()
 	layout.Parent = grid
 
 	for i, dragon in Config.HatchDragons do
-		local known = (owned[dragon.id] or 0) > 0
+		local known = met[dragon.id] == true
 		local rarity = Config.Rarities[dragon.rarity]
 		local card = Instance.new("TextButton")
 		card.LayoutOrder = i
@@ -744,17 +917,449 @@ local function renderBook()
 	end
 end
 
+-- 交配にえらんでいる 2匹（檻のタブ）
+local breedPick: { string? } = { nil, nil }
+
+local function renderDragons()
+	local owned = collection()
+	local members = team()
+	local slots = player:GetAttribute("TeamSlots") or Config.TeamSlots
+
+	local function dragonRow(order: number, dragon, count: number?)
+		local rarity = dragon.rarity and Config.Rarities[dragon.rarity]
+		local level = levelOf(dragon.id)
+		local name = string.format("Lv.%d %s", level, dragon.name)
+		if rarity then
+			name = string.rep("★", dragon.rarity) .. " " .. name
+		end
+		if count and count > 1 then
+			name ..= string.format(" ×%d", count)
+		end
+		local inTeam = table.find(members, dragon.id) ~= nil
+		if inTeam then
+			name = "⭐" .. name
+		end
+		local desc = dragonDesc(dragon, level) .. "　" .. skillDesc(dragon, level)
+		local buttons: { RowButton } = {}
+		if inTeam then
+			table.insert(buttons, {
+				text = "お休み",
+				color = ORANGE,
+				enabled = true,
+				onClick = function()
+					local ok, msg = dragonAction:InvokeServer("unequip", dragon.id)
+					toast(msg, ok)
+				end,
+			})
+		else
+			table.insert(buttons, {
+				text = if #members >= slots then "交代" else "つれていく",
+				color = BLUE,
+				enabled = true,
+				onClick = function()
+					local ok, msg = dragonAction:InvokeServer("equip", dragon.id)
+					toast(msg, ok)
+				end,
+			})
+		end
+		-- 生まれたドラゴンだけ：進化（同じのが3体）と卒業
+		if dragon.rarity then
+			local c = count or 0
+			table.insert(buttons, {
+				text = if dragon.rarity >= 5
+					then "進化 ー"
+					else string.format("進化 %d/%d", math.min(c, Config.MergeCount), Config.MergeCount),
+				color = PURPLE,
+				enabled = dragon.rarity < 5 and c >= Config.MergeCount,
+				onClick = function()
+					local ok, msg, id, isNew = dragonAction:InvokeServer("merge", dragon.id)
+					toast(msg, ok)
+					if ok and id then
+						showHatch(id, isNew, "✨ 進化した！")
+					end
+				end,
+			})
+			table.insert(buttons, {
+				text = string.format("卒業 🪙%s", short(Config.GraduateCoins[dragon.rarity])),
+				color = Color3.fromRGB(170, 110, 60),
+				enabled = true,
+				onClick = function()
+					local ok, msg = dragonAction:InvokeServer("graduate", dragon.id)
+					toast(msg, ok)
+				end,
+			})
+		end
+		actionRow(order, name, desc, if rarity then rarity.color else nil, buttons)
+	end
+
+	-- 生まれたドラゴン（レアな順）を先に、そのあと はじめの仲間
+	local hatched = {}
+	for _, dragon in Config.HatchDragons do
+		if (owned[dragon.id] or 0) > 0 then
+			table.insert(hatched, dragon)
+		end
+	end
+	table.sort(hatched, function(x, y)
+		if x.rarity ~= y.rarity then
+			return x.rarity > y.rarity
+		end
+		return x.id < y.id
+	end)
+	shopTitle.Text = string.format("🐉 仲間（ついて来る %d / %d 匹）", #members, slots)
+	heading(
+		-1,
+		if slots < 3
+			then "ショップの「仲間の席」で、いっしょに連れていける数が増える"
+			else "⭐ = ついて来ている。同じドラゴン 3体で 進化！"
+	)
+	-- いまついて来ている仲間を一番上に、そのあと 生まれた仲間、はじめの仲間
+	for i, dragon in hatched do
+		local slot = table.find(members, dragon.id)
+		dragonRow(if slot then slot - 10 else i, dragon, owned[dragon.id])
+	end
+	for i, dragon in Config.Dragons do
+		local slot = table.find(members, dragon.id)
+		dragonRow(if slot then slot - 10 else 1000 + i, dragon)
+	end
+end
+
+local function renderCage()
+	local eggs = incubator()
+	local slots = player:GetAttribute("IncubatorSlots") or Config.IncubatorSlots
+	shopTitle.Text = string.format("🥚 ふ化の檻 %d / %d", #eggs, slots)
+	for slot = 1, slots do
+		local egg = eggs[slot]
+		if egg then
+			local info = Config.eggInfo(egg.zone)
+			local label = if info then info.name .. "のたまご" else "たまご"
+			local desc, button = row(slot, label, "", "", GRAY, true, function()
+				if secondsLeft(egg) > 0 then
+					toast(string.format("あと %s でかえるよ", clock(secondsLeft(egg))))
+					return
+				end
+				local ok, id, isNew = hatchEgg:InvokeServer(slot)
+				if ok then
+					showHatch(id, isNew)
+				end
+			end, if info then info.color else nil)
+			table.insert(cageRows, { desc = desc, button = button, slot = slot })
+		else
+			row(slot, "あき", "巣にたまごを届けると ここに入る", "ー", GRAY, false, function() end)
+		end
+	end
+
+	-- 交配：2匹をえらぶと、片方の「体の形」と、もう片方の「属性」をあわせた子どものたまごができる
+	heading(100, "🧬 交配（親は いなくならない）")
+	local owned = collection()
+	local choices = {}
+	for _, dragon in Config.HatchDragons do
+		if (owned[dragon.id] or 0) > 0 then
+			table.insert(choices, dragon)
+		end
+	end
+	if #choices == 0 then
+		row(
+			101,
+			"交配",
+			"たまごから生まれたドラゴンが いると 交配できる",
+			"ー",
+			GRAY,
+			false,
+			function() end
+		)
+		return
+	end
+	local function picked(i: number)
+		local id = breedPick[i]
+		for k, d in choices do
+			if d.id == id then
+				return d, k
+			end
+		end
+		breedPick[i] = choices[1].id
+		return choices[1], 1
+	end
+	for i = 1, 2 do
+		local dragon, k = picked(i)
+		local rarity = Config.Rarities[dragon.rarity]
+		actionRow(
+			100 + i,
+			string.format("親%d：%s %s", i, string.rep("★", dragon.rarity), dragon.name),
+			string.format("形：%s　属性：%s", dragon.noun, dragon.element),
+			rarity.color,
+			{
+				{
+					text = "▶",
+					color = BLUE,
+					enabled = #choices > 1,
+					onClick = function()
+						breedPick[i] = choices[k % #choices + 1].id
+					end,
+				},
+				{
+					text = "◀",
+					color = BLUE,
+					enabled = #choices > 1,
+					onClick = function()
+						breedPick[i] = choices[(k - 2) % #choices + 1].id
+					end,
+				},
+			}
+		)
+	end
+	local a, b = picked(1), picked(2)
+	local cost = Config.breedCost(a.rarity, b.rarity)
+	local guess = {}
+	for _, pair in { { a, b }, { b, a } } do
+		local child = Config.findDragonByName(pair[2].element .. pair[1].noun)
+		if child and not table.find(guess, child.element .. child.noun) then
+			table.insert(guess, child.element .. child.noun)
+		end
+	end
+	local met = seen()
+	local hints = {}
+	for _, name in guess do
+		local child = Config.findDragonByName(name)
+		table.insert(hints, if child and met[child.id] then child.name else "？？？")
+	end
+	row(
+		103,
+		"交配する",
+		"生まれるかも：" .. (if #hints > 0 then table.concat(hints, " / ") else a.name),
+		string.format("🪙 %s", short(cost)),
+		if coinValue.Value >= cost then GREEN else Color3.fromRGB(150, 90, 60),
+		true,
+		function()
+			local ok, msg = dragonAction:InvokeServer("breed", a.id, b.id)
+			toast(msg, ok)
+		end,
+		Color3.fromRGB(255, 170, 215)
+	)
+end
+
+local function renderDaily()
+	local p = profile()
+	shopTitle.Text = "📅 毎日のごほうび"
+	local login = p.login or { canClaim = false, day = 1, streak = 0 }
+	local base = p.loginBase or 50
+
+	-- ログインボーナス（7日でひとまわり）
+	heading(1, string.format("📅 ログインボーナス（連続 %d日）", login.streak or 0))
+	local strip = Instance.new("Frame")
+	strip.LayoutOrder = 2
+	strip.Size = UDim2.new(1, -8, 0, 64)
+	strip.BackgroundTransparency = 1
+	strip.ZIndex = 6
+	strip.Parent = list
+	local grid = Instance.new("UIGridLayout")
+	grid.CellSize = UDim2.new(1 / 7, -4, 1, 0)
+	grid.CellPadding = UDim2.new(0, 4, 0, 0)
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
+	grid.Parent = strip
+	for day, reward in Config.LoginRewards do
+		local cell = Instance.new("Frame")
+		cell.LayoutOrder = day
+		local isToday = day == login.day
+		local done = day < login.day or (isToday and not login.canClaim)
+		cell.BackgroundColor3 = if isToday and login.canClaim
+			then Color3.fromRGB(60, 160, 80)
+			elseif done then Color3.fromRGB(45, 45, 60)
+			else Color3.fromRGB(60, 60, 85)
+		cell.ZIndex = 7
+		cell.Parent = strip
+		corner(cell, 8)
+		text(cell, {
+			Position = UDim2.new(0, 2, 0, 2),
+			Size = UDim2.new(1, -4, 0, 16),
+			Text = string.format("%d日目", day),
+			Font = Enum.Font.Gotham,
+			ZIndex = 8,
+		})
+		text(cell, {
+			Position = UDim2.new(0, 2, 0, 20),
+			Size = UDim2.new(1, -4, 0, 22),
+			Text = if done then "✅" elseif reward.egg then "🥚" else "🪙",
+			ZIndex = 8,
+		})
+		text(cell, {
+			Position = UDim2.new(0, 2, 0, 44),
+			Size = UDim2.new(1, -4, 0, 16),
+			Text = short(reward.coins * base),
+			TextColor3 = Color3.fromRGB(255, 225, 110),
+			ZIndex = 8,
+		})
+	end
+	row(
+		3,
+		if login.canClaim
+			then string.format("今日は %d日目！", login.day)
+			else "今日のぶんは もらったよ",
+		"7日目は ふしぎなたまご つき。1日休むと 1日目から",
+		if login.canClaim then "受け取る" else "また明日",
+		if login.canClaim then GREEN else GRAY,
+		login.canClaim,
+		function()
+			local ok, msg, id, isNew = dailyAction:InvokeServer("login")
+			toast(msg, ok)
+			if ok and id then
+				showHatch(id, isNew, "🥚 ふしぎなたまごが かえった！")
+			end
+		end
+	)
+
+	-- 無料のたまごと、黄金のたまごイベント
+	heading(10, "🎰 たまご")
+	local freeAt = p.freeEggAt or 0
+	local _, freeButton = row(
+		11,
+		"🎰 無料のたまご",
+		"4時間ごとに 1回、その場で かえる",
+		"",
+		GREEN,
+		true,
+		function()
+			local ok, msg, id, isNew = dailyAction:InvokeServer("free")
+			toast(msg, ok)
+			if ok and id then
+				showHatch(id, isNew, "🎰 無料のたまごが かえった！")
+			end
+		end
+	)
+	local goldDesc, goldButton = row(
+		12,
+		"🌟 黄金のたまごイベント",
+		"",
+		"",
+		GRAY,
+		false,
+		function() end,
+		Color3.fromRGB(255, 215, 60)
+	)
+	local function updateEggs()
+		local left = freeAt - nowTime()
+		freeButton.Text = if left <= 0 then "ひく！" else "⏳ " .. longClock(left)
+		freeButton.BackgroundColor3 = if left <= 0 then GREEN else GRAY
+		local goldEnd = workspace:GetAttribute("GoldenEnd") or 0
+		local goldNext = workspace:GetAttribute("GoldenNext") or 0
+		if nowTime() < goldEnd then
+			goldDesc.Text = "道のどこかの 光の柱へ！ 運ぶとレアが出やすい"
+			goldButton.Text = "開催中 " .. longClock(goldEnd - nowTime())
+			goldButton.BackgroundColor3 = Color3.fromRGB(200, 160, 30)
+		else
+			goldDesc.Text = "30分ごとに 3分間、道に 黄金のたまごが出る"
+			goldButton.Text = "あと " .. longClock(goldNext - nowTime())
+			goldButton.BackgroundColor3 = GRAY
+		end
+	end
+	updateEggs()
+	table.insert(liveUpdaters, updateEggs)
+
+	-- 今日のミッション
+	heading(20, string.format("📋 今日のミッション（1つ 🪙%s）", short(p.missionReward or 0)))
+	local allDone = true
+	for i, m in p.missions or {} do
+		local complete = m.progress >= m.target
+		if not m.claimed then
+			allDone = false
+		end
+		row(
+			20 + i,
+			m.text,
+			string.format("%s / %s", short(m.progress), short(m.target)),
+			if m.claimed then "受け取りずみ" elseif complete then "受け取る" else "がんばろう",
+			if m.claimed then GRAY elseif complete then GREEN else GRAY,
+			complete and not m.claimed,
+			function()
+				local ok, msg = dailyAction:InvokeServer("mission", i)
+				toast(msg, ok)
+			end
+		)
+	end
+	local canBonus = allDone and not p.bonus and #(p.missions or {}) > 0
+	row(
+		30,
+		"🎁 3つ全部クリアのごほうび",
+		"ふしぎなたまごが 1こ その場で かえる",
+		if p.bonus then "受け取りずみ" elseif canBonus then "受け取る" else "🔒",
+		if canBonus then GREEN else GRAY,
+		canBonus,
+		function()
+			local ok, msg, id, isNew = dailyAction:InvokeServer("bonus")
+			toast(msg, ok)
+			if ok and id then
+				showHatch(id, isNew, "🎁 ふしぎなたまごが かえった！")
+			end
+		end
+	)
+end
+
+local function renderTrophies()
+	local p = profile()
+	local got = p.achievements or {}
+	local stats = p.stats or {}
+	local total, done = #Config.Achievements, 0
+	for _, a in Config.Achievements do
+		if got[a.id] then
+			done += 1
+		end
+	end
+	shopTitle.Text = string.format("🏆 実績 %d / %d", done, total)
+	-- ひみつの門と、塔の記録
+	local open = player:GetAttribute("SecretOpen") == true
+	row(
+		0,
+		if open then "🔓 ひみつの門：開いている" else "🔒 ひみつの門",
+		string.format(
+			"やみの竜王 %d/%d回　図鑑 %d/%d種類",
+			math.min(p.bossKills or 0, Config.SecretZone.bossKills),
+			Config.SecretZone.bossKills,
+			math.min(stats.book or 0, Config.SecretZone.book),
+			Config.SecretZone.book
+		),
+		if open then "通れる！" else "ー",
+		if open then GREEN else GRAY,
+		false,
+		function() end,
+		Color3.fromRGB(150, 255, 200)
+	)
+	row(
+		1,
+		"🗼 塔のぼり",
+		string.format("さいこう記録 %d階（ベースの左うしろの塔から入れる）", p.towerBest or 0),
+		"ー",
+		GRAY,
+		false,
+		function() end,
+		Color3.fromRGB(210, 190, 255)
+	)
+	-- まだの実績を上に、達成したものを下に
+	for i, a in Config.Achievements do
+		local isDone = got[a.id] == true
+		local value = math.min(stats[a.stat] or 0, a.goal)
+		row(
+			if isDone then 1000 + i else 10 + i,
+			(if isDone then "✅ " else "") .. a.desc,
+			string.format("%s ／ %s / %s ／ 🪙%s", a.name, short(value), short(a.goal), short(a.reward)),
+			if isDone then "達成！" else string.format("%d%%", math.floor(value / a.goal * 100)),
+			if isDone then Color3.fromRGB(60, 140, 80) else GRAY,
+			false,
+			function() end,
+			if isDone then Color3.fromRGB(150, 230, 160) else nil
+		)
+	end
+end
+
 render = function()
 	for _, c in list:GetChildren() do
 		if c:IsA("Frame") then
 			c:Destroy()
 		end
 	end
-	tabs.items.BackgroundColor3 = if currentTab == "items" then BLUE else GRAY
-	tabs.dragons.BackgroundColor3 = if currentTab == "dragons" then BLUE else GRAY
-	tabs.book.BackgroundColor3 = if currentTab == "book" then BLUE else GRAY
-	tabs.cage.BackgroundColor3 = if currentTab == "cage" then BLUE else GRAY
+	for name, b in tabs do
+		b.BackgroundColor3 = if currentTab == name then BLUE else GRAY
+	end
 	table.clear(cageRows)
+	table.clear(liveUpdaters)
 	shopTitle.Text = string.format("🛒 ショップ　🪙 %d", coinValue.Value)
 
 	if currentTab == "items" then
@@ -776,93 +1381,21 @@ render = function()
 			)
 		end
 	elseif currentTab == "dragons" then
-		local equipped = player:GetAttribute("Dragon")
-		local owned = collection()
-		local function dragonRow(order: number, dragon, count: number?)
-			local rarity = dragon.rarity and Config.Rarities[dragon.rarity]
-			local name = "🐉 " .. dragon.name
-			if rarity then
-				name = string.format("%s %s", string.rep("★", dragon.rarity), dragon.name)
-			end
-			if count and count > 1 then
-				name ..= string.format(" ×%d", count)
-			end
-			local color = if rarity then rarity.color else nil
-			if dragon.id == equipped then
-				name = "⭐ついて来ている　" .. name
-				row(order, name, dragonDesc(dragon), "お休み", Color3.fromRGB(200, 120, 40), true, function()
-					local ok, msg = dragonAction:InvokeServer("unequip")
-					toast(msg, ok)
-				end, color)
-			else
-				row(order, name, dragonDesc(dragon), "つれていく", BLUE, true, function()
-					local ok, msg = dragonAction:InvokeServer("equip", dragon.id)
-					toast(msg, ok)
-				end, color)
-			end
-		end
-
-		-- 生まれたドラゴン（レアな順）を先に、そのあと はじめの仲間
-		local hatched = {}
-		for _, dragon in Config.HatchDragons do
-			if (owned[dragon.id] or 0) > 0 then
-				table.insert(hatched, dragon)
-			end
-		end
-		table.sort(hatched, function(x, y)
-			if x.rarity ~= y.rarity then
-				return x.rarity > y.rarity
-			end
-			return x.id < y.id
-		end)
-		shopTitle.Text =
-			string.format("🐉 仲間（ついて来るのは1匹）図鑑 %d/%d", #hatched, #Config.HatchDragons)
-		-- いまついて来ている1匹を一番上に、そのあと 生まれた仲間、はじめの仲間
-		for i, dragon in hatched do
-			dragonRow(if dragon.id == equipped then 0 else i, dragon, owned[dragon.id])
-		end
-		for i, dragon in Config.Dragons do
-			dragonRow(if dragon.id == equipped then 0 else 1000 + i, dragon)
-		end
+		renderDragons()
 	elseif currentTab == "book" then
 		renderBook()
+	elseif currentTab == "daily" then
+		renderDaily()
+	elseif currentTab == "trophy" then
+		renderTrophies()
 	else
-		-- 檻
-		local eggs = incubator()
-		local slots = player:GetAttribute("IncubatorSlots") or Config.IncubatorSlots
-		shopTitle.Text = string.format("🥚 ふ化の檻 %d / %d", #eggs, slots)
-		for slot = 1, slots do
-			local egg = eggs[slot]
-			if egg then
-				local zone = Config.Zones[egg.zone]
-				local desc, button = row(slot, zone.name .. "のたまご", "", "", GRAY, true, function()
-					if secondsLeft(egg) > 0 then
-						toast(string.format("あと %s でかえるよ", clock(secondsLeft(egg))))
-						return
-					end
-					local ok, id, isNew = hatchEgg:InvokeServer(slot)
-					if ok then
-						showHatch(id, isNew)
-					end
-				end, zone.eggColor)
-				table.insert(cageRows, { desc = desc, button = button, slot = slot })
-			else
-				row(
-					slot,
-					"あき",
-					"巣にたまごを届けると ここに入る",
-					"ー",
-					GRAY,
-					false,
-					function() end
-				)
-			end
-		end
+		renderCage()
+		updateCageRows()
 	end
 end
 
 -- 檻のタブを開いている間、残り時間を書きかえる
-local function updateCageRows()
+updateCageRows = function()
 	local eggs = incubator()
 	for _, r in cageRows do
 		local egg = eggs[r.slot]
@@ -895,24 +1428,14 @@ end)
 closeButton.Activated:Connect(function()
 	shop.Visible = false
 end)
-tabs.items.Activated:Connect(function()
-	currentTab = "items"
-	render()
-end)
-tabs.dragons.Activated:Connect(function()
-	currentTab = "dragons"
-	render()
-end)
-tabs.book.Activated:Connect(function()
-	currentTab = "book"
-	render()
-end)
-tabs.cage.Activated:Connect(function()
-	currentTab = "cage"
-	render()
-	updateCageRows()
-end)
-for _, attr in { "Incubator", "Collection", "IncubatorSlots" } do
+for name, b in tabs do
+	b.Activated:Connect(function()
+		currentTab = name
+		render()
+		updateCageRows()
+	end)
+end
+for _, attr in { "Incubator", "Collection", "IncubatorSlots", "Seen", "Team", "TeamSlots", "Profile", "SecretOpen" } do
 	player:GetAttributeChangedSignal(attr):Connect(function()
 		if shop.Visible and not busy then
 			render()
@@ -925,8 +1448,9 @@ coinValue.Changed:Connect(function()
 		render()
 	end
 end)
-player:GetAttributeChangedSignal("Dragon"):Connect(function()
-	if shop.Visible then
+-- 経験値は走っている間ずっと増えるので、仲間のタブを開いているときだけ書きかえる
+player:GetAttributeChangedSignal("Xp"):Connect(function()
+	if shop.Visible and currentTab == "dragons" and not busy then
 		render()
 	end
 end)
@@ -935,8 +1459,8 @@ end)
 local function sideButton(label: string, y: number, color: Color3, onClick: () -> ()): TextButton
 	local b = Instance.new("TextButton")
 	b.AnchorPoint = Vector2.new(0, 0.5)
-	b.Position = UDim2.new(0, 10, 0.4, y)
-	b.Size = UDim2.new(0, 120, 0, 42)
+	b.Position = UDim2.new(0, 10, 0.42, y)
+	b.Size = UDim2.new(0, 116, 0, 36)
 	b.BackgroundColor3 = color
 	b.Font = Enum.Font.GothamBold
 	b.TextScaled = true
@@ -947,31 +1471,145 @@ local function sideButton(label: string, y: number, color: Color3, onClick: () -
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, 8)
 	pad.PaddingRight = UDim.new(0, 8)
-	pad.PaddingTop = UDim.new(0, 6)
-	pad.PaddingBottom = UDim.new(0, 6)
+	pad.PaddingTop = UDim.new(0, 5)
+	pad.PaddingBottom = UDim.new(0, 5)
 	pad.Parent = b
 	b.Activated:Connect(onClick)
 	return b
 end
 
-sideButton("🛒 ショップ", -100, GREEN, function()
+sideButton("🛒 ショップ", -105, GREEN, function()
 	if shop.Visible then
 		shop.Visible = false
 	else
 		openShop("items")
 	end
 end)
-sideButton("🐉 仲間", -50, Color3.fromRGB(140, 70, 200), function()
+sideButton("🐉 仲間", -63, Color3.fromRGB(140, 70, 200), function()
 	openShop("dragons")
 end)
-sideButton("📖 図鑑", 0, Color3.fromRGB(40, 150, 160), function()
+sideButton("📖 図鑑", -21, Color3.fromRGB(40, 150, 160), function()
 	openShop("book")
 end)
-local cageButton = sideButton("🥚 檻", 50, Color3.fromRGB(220, 140, 40), function()
+local cageButton = sideButton("🥚 檻", 21, Color3.fromRGB(220, 140, 40), function()
 	openShop("cage")
 end)
-sideButton("🏠 ベースへ", 100, BLUE, function()
+local dailyButton = sideButton("📅 毎日", 63, Color3.fromRGB(220, 80, 120), function()
+	openShop("daily")
+end)
+sideButton("🏠 ベースへ", 105, BLUE, function()
 	goHome:FireServer()
+end)
+
+-- 右の「✨ わざ」ボタン（連れているドラゴンのうち、レベル 5 以上の全員が使う）
+local skillButton = Instance.new("TextButton")
+skillButton.AnchorPoint = Vector2.new(1, 0.5)
+skillButton.Position = UDim2.new(1, -10, 0.42, 0)
+skillButton.Size = UDim2.new(0, 104, 0, 50)
+skillButton.BackgroundColor3 = Color3.fromRGB(255, 170, 40)
+skillButton.Font = Enum.Font.GothamBlack
+skillButton.TextScaled = true
+skillButton.TextColor3 = Color3.new(1, 1, 1)
+skillButton.TextStrokeTransparency = 0.5
+skillButton.Text = "✨ わざ"
+skillButton.Parent = gui
+corner(skillButton, 25)
+do
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 2
+	stroke.Color = Color3.fromRGB(255, 240, 170)
+	stroke.Parent = skillButton
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0, 8)
+	pad.PaddingRight = UDim.new(0, 8)
+	pad.PaddingTop = UDim.new(0, 8)
+	pad.PaddingBottom = UDim.new(0, 8)
+	pad.Parent = skillButton
+end
+local function anySkillLearned(): boolean
+	for _, id in team() do
+		local dragon = Config.findDragon(id)
+		if dragon and Config.Skills[dragon.shape] and levelOf(id) >= Config.SkillLevel then
+			return true
+		end
+	end
+	return false
+end
+local function refreshSkillButton()
+	local left = (player:GetAttribute("SkillReadyAt") or 0) - nowTime()
+	if not anySkillLearned() then
+		skillButton.Text = string.format("✨ Lv%dで", Config.SkillLevel)
+		skillButton.BackgroundColor3 = GRAY
+	elseif left > 0 then
+		skillButton.Text = string.format("✨ %d秒", math.ceil(left))
+		skillButton.BackgroundColor3 = GRAY
+	else
+		skillButton.Text = "✨ わざ"
+		skillButton.BackgroundColor3 = Color3.fromRGB(255, 170, 40)
+	end
+end
+local skillBusy = false
+skillButton.Activated:Connect(function()
+	if skillBusy then
+		return
+	end
+	skillBusy = true
+	local ok, msg = useSkill:InvokeServer()
+	toast(msg, ok)
+	skillBusy = false
+	refreshSkillButton()
+end)
+
+-- 右上：黄金のたまごイベントの残り時間
+local goldenLabel = text(gui, {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -8, 0, 84),
+	Size = UDim2.new(0, 210, 0, 26),
+	BackgroundTransparency = 0.2,
+	BackgroundColor3 = Color3.fromRGB(150, 110, 10),
+	Visible = false,
+	TextColor3 = Color3.fromRGB(255, 240, 170),
+})
+corner(goldenLabel, 8)
+
+-- 何か受け取れるものがあるか（毎日ボタンに「！」をつける）
+local function dailyHasSomething(): boolean
+	local p = profile()
+	if p.login and p.login.canClaim then
+		return true
+	end
+	if (p.freeEggAt or 0) <= nowTime() then
+		return true
+	end
+	local allClaimed = #(p.missions or {}) > 0
+	for _, m in p.missions or {} do
+		if not m.claimed then
+			allClaimed = false
+			if m.progress >= m.target then
+				return true
+			end
+		end
+	end
+	return allClaimed and not p.bonus
+end
+
+-- ひみつの門：開いた人の画面でだけ、通りぬけられる（キャラの動きは自分の画面で計算している）
+local function refreshSecretGate()
+	local worldFolder = workspace:FindFirstChild("World")
+	local gate = worldFolder and worldFolder:FindFirstChild("SecretGate") :: BasePart?
+	if gate then
+		local open = player:GetAttribute("SecretOpen") == true
+		gate.CanCollide = not open
+		gate.Transparency = if open then 0.85 else 0.3
+	end
+end
+player:GetAttributeChangedSignal("SecretOpen"):Connect(refreshSecretGate)
+task.spawn(function()
+	local worldFolder = workspace:WaitForChild("World", 30)
+	if worldFolder then
+		worldFolder:WaitForChild("SecretGate", 30)
+	end
+	refreshSecretGate()
 end)
 
 -- ふ化の演出
@@ -1018,7 +1656,7 @@ local equipNew = popupButton("つれていく", 0, BLUE)
 local closePopup = popupButton("あとで", 0.5, GRAY)
 local hatchedId: string? = nil
 
-showHatch = function(id: string, isNew: boolean)
+showHatch = function(id: string, isNew: boolean, title: string?)
 	local dragon = Config.findDragon(id)
 	if not dragon then
 		return
@@ -1027,8 +1665,8 @@ showHatch = function(id: string, isNew: boolean)
 	hatchedId = id
 	hatchStroke.Color = rarity.color
 	hatchTitle.Text = if isNew
-		then "🐣 新しいドラゴンが仲間になった！"
-		else "🐣 ドラゴンが仲間になった！"
+		then (title or "🐣") .. " 新しいドラゴン！"
+		else title or "🐣 ドラゴンが仲間になった！"
 	hatchRarity.Text = string.rep("★", dragon.rarity) .. " " .. rarity.name
 	hatchRarity.TextColor3 = rarity.color
 	hatchName.Text = dragon.name
@@ -1070,13 +1708,14 @@ local function refreshCageEggs()
 			local p = Instance.new("Part")
 			p.Shape = Enum.PartType.Ball
 			-- レアなたまごほど大きい（檻のすき間に入るよう、少しひかえめ）
-			local size = 2.2 * (1 + (Config.EggScale[egg.zone] - 1) * 0.6)
+			local info = Config.eggInfo(egg.zone)
+			local size = 2.2 * (1 + ((if info then info.scale else 1) - 1) * 0.6)
 			p.Size = Vector3.one * size
 			p.Anchored = true
 			p.CanCollide = false
 			p.CanQuery = false
 			p.CanTouch = false
-			p.Color = Config.Zones[egg.zone].eggColor
+			p.Color = if info then info.color else Color3.new(1, 1, 1)
 			p.CFrame = CFrame.new(slot.Position.X, 1.3 + size * 0.65, slot.Position.Z)
 			local mesh = Instance.new("SpecialMesh")
 			mesh.MeshType = Enum.MeshType.Sphere
@@ -1111,6 +1750,18 @@ task.spawn(function()
 		if shop.Visible and currentTab == "cage" then
 			updateCageRows()
 		end
+		if shop.Visible then
+			for _, fn in liveUpdaters do
+				fn()
+			end
+		end
+		dailyButton.Text = if dailyHasSomething() then "📅 毎日 ❗" else "📅 毎日"
+		refreshSkillButton()
+		local goldEnd = workspace:GetAttribute("GoldenEnd") or 0
+		goldenLabel.Visible = nowTime() < goldEnd
+		if goldenLabel.Visible then
+			goldenLabel.Text = "🌟 黄金のたまご あと " .. longClock(goldEnd - nowTime())
+		end
 		task.wait(1)
 	end
 end)
@@ -1132,4 +1783,9 @@ task.delay(2, function()
 	toast("ようこそ「" .. Config.GameTitle .. "」へ！ ルームランナーで足をきたえよう")
 	task.wait(1.5)
 	toast("速くなったら、遠くのたまごを取って巣まで運ぼう！")
+	-- 今日のログインボーナスがまだなら、毎日のごほうびを開く
+	local p = profile()
+	if p.login and p.login.canClaim and not shop.Visible then
+		openShop("daily")
+	end
 end)
