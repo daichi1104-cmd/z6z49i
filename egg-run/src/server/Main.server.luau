@@ -14,6 +14,7 @@ local Dragons = require(script.Parent:WaitForChild("Dragons"))
 local Progress = require(script.Parent:WaitForChild("Progress"))
 local Tower = require(script.Parent:WaitForChild("Tower"))
 local Weapons = require(script.Parent:WaitForChild("Weapons"))
+local Armor = require(script.Parent:WaitForChild("Armor"))
 
 local world = WorldBuilder.build()
 
@@ -38,6 +39,7 @@ local dragonAction = remote("RemoteFunction", "DragonAction") :: RemoteFunction
 local dailyAction = remote("RemoteFunction", "DailyAction") :: RemoteFunction
 local useSkill = remote("RemoteFunction", "UseSkill") :: RemoteFunction
 local weaponAction = remote("RemoteFunction", "WeaponAction") :: RemoteFunction
+local armorAction = remote("RemoteFunction", "ArmorAction") :: RemoteFunction
 local screenFx = remote("RemoteEvent", "ScreenFx") :: RemoteEvent
 Weapons.setScreenFx(screenFx)
 
@@ -61,6 +63,8 @@ type Data = {
 	secretOpen: boolean, -- ひみつのゾーンの門が開いたか
 	weapons: { [string]: boolean }, -- 持っている武器
 	weapon: string, -- 手に持つ武器
+	armors: { [string]: boolean }, -- 持っている防具
+	armor: { [string]: string }, -- 身につけている防具（場所 → 防具の id）
 	stats: any,
 	achievements: any,
 	login: any,
@@ -91,6 +95,8 @@ local function defaultData(): Data
 		secretOpen = false,
 		weapons = { [Config.StarterWeapon] = true },
 		weapon = Config.StarterWeapon,
+		armors = {},
+		armor = {},
 	}
 	Progress.ensure(d)
 	return d :: any
@@ -193,6 +199,21 @@ local function loadData(player: Player): Data
 	if Config.findWeapon(value.weapon) and d.weapons[value.weapon] then
 		d.weapon = value.weapon
 	end
+	if typeof(value.armors) == "table" then
+		for id, has in value.armors do
+			if has == true and Config.findArmor(tostring(id)) then
+				d.armors[tostring(id)] = true
+			end
+		end
+	end
+	if typeof(value.armor) == "table" then
+		for slot, id in value.armor do
+			local armor = Config.findArmor(id)
+			if armor and armor.slot == slot and d.armors[armor.id] then
+				d.armor[armor.slot] = armor.id
+			end
+		end
+	end
 	d.stats = value.stats
 	d.achievements = value.achievements
 	d.login = value.login
@@ -221,6 +242,8 @@ local function saveData(player: Player)
 			secretOpen = d.secretOpen,
 			weapons = d.weapons,
 			weapon = d.weapon,
+			armors = d.armors,
+			armor = d.armor,
 			stats = d.stats,
 			achievements = d.achievements,
 			login = d.login,
@@ -279,7 +302,7 @@ local function trainMult(player: Player, d: Data): number
 	if os.clock() < b.trainUntil then
 		m *= b.train
 	end
-	return m
+	return m * (1 + Config.armorBonus(d.armor).train / 100)
 end
 
 local function damageMult(player: Player, d: Data): number
@@ -292,7 +315,7 @@ local function damageMult(player: Player, d: Data): number
 			m *= dragon.damageMult
 		end
 	end
-	return m
+	return m * (1 - Config.armorBonus(d.armor).defense / 100)
 end
 
 local function coinMult(d: Data): number
@@ -302,7 +325,7 @@ local function coinMult(d: Data): number
 			m *= dragon.coinMult
 		end
 	end
-	return m
+	return m * (1 + Config.armorBonus(d.armor).coin / 100)
 end
 
 local function regenOf(d: Data): number
@@ -310,11 +333,11 @@ local function regenOf(d: Data): number
 	for _, dragon in teamDragons(d) do
 		r += dragon.regen or 0
 	end
-	return r
+	return r + Config.armorBonus(d.armor).regen
 end
 
 local function maxHealth(d: Data): number
-	return itemBest(d, "maxHealth", 100, math.max)
+	return itemBest(d, "maxHealth", 100, math.max) + Config.armorBonus(d.armor).hp
 end
 
 local function incubatorSlots(d: Data): number
@@ -326,7 +349,7 @@ local function teamSlots(d: Data): number
 end
 
 local function jumpPower(d: Data): number
-	return itemBest(d, "jumpPower", 50, math.max)
+	return itemBest(d, "jumpPower", 50, math.max) + Config.armorBonus(d.armor).jump
 end
 
 local function walkSpeed(player: Player, d: Data): number
@@ -338,7 +361,7 @@ local function walkSpeed(player: Player, d: Data): number
 	if os.clock() < b.speedUntil then
 		bonus += b.speed
 	end
-	return Config.walkSpeedFor(d.speed) + bonus
+	return Config.walkSpeedFor(d.speed) + bonus + Config.armorBonus(d.armor).walk
 end
 
 local function syncStats(player: Player)
@@ -366,6 +389,8 @@ local function syncStats(player: Player)
 	player:SetAttribute("SkillReadyAt", skillReadyAt[player] or 0)
 	player:SetAttribute("Weapons", HttpService:JSONEncode(d.weapons))
 	player:SetAttribute("Weapon", d.weapon)
+	player:SetAttribute("Armors", HttpService:JSONEncode(d.armors))
+	player:SetAttribute("Armor", HttpService:JSONEncode(d.armor))
 end
 
 local function applyStats(player: Player, fullHeal: boolean?)
@@ -435,7 +460,7 @@ local function addXp(player: Player, amount: number)
 					notify:FireClient(
 						player,
 						string.format(
-							"✨ わざ「%s」を覚えた！ 左の ✨わざ ボタンで使える",
+							"✨ わざ「%s」を覚えた！ 右の ✨わざ ボタンで使える",
 							skill.name
 						),
 						true
@@ -483,13 +508,31 @@ local function giveWeapon(player: Player)
 	end
 	local tool = Weapons.build(weapon)
 	tool.Activated:Connect(function()
-		Weapons.swing(player, tool, weapon)
+		-- こて などの防具で、こうげき力が上がる
+		local now = data[player]
+		Weapons.swing(player, tool, weapon, if now then 1 + Config.armorBonus(now.armor).attack / 100 else 1)
 	end)
 	tool.Parent = backpack
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid and humanoid.Health > 0 then
 		humanoid:EquipTool(tool)
 	end
+end
+
+-- 身につけている防具を、キャラの体につける
+local function wearArmor(player: Player)
+	local d = data[player]
+	if not d then
+		return
+	end
+	local pieces = {}
+	for _, slot in Config.ArmorSlots do
+		local armor = Config.findArmor(d.armor[slot.id])
+		if armor then
+			table.insert(pieces, armor)
+		end
+	end
+	Armor.apply(player.Character, pieces)
 end
 
 --------------------------------------------------------------------------------
@@ -683,6 +726,7 @@ Players.PlayerAdded:Connect(function(player)
 		task.delay(0.5, function()
 			if player.Character == character then
 				giveWeapon(player)
+				wearArmor(player)
 			end
 		end)
 		humanoid.Died:Connect(function()
@@ -694,6 +738,11 @@ Players.PlayerAdded:Connect(function(player)
 		end)
 	end
 	player.CharacterAdded:Connect(onCharacter)
+	-- 服や体の大きさが決まったあとに、防具を体に合わせて つけ直す
+	player.CharacterAppearanceLoaded:Connect(function()
+		task.wait(0.2)
+		wearArmor(player)
+	end)
 	if player.Character then
 		task.spawn(onCharacter, player.Character)
 	end
@@ -1284,6 +1333,51 @@ weaponAction.OnServerInvoke = function(player: Player, action: any, id: any)
 	d.weapon = weapon.id
 	giveWeapon(player)
 	checkProgress(player)
+	syncStats(player)
+	save(player)
+	return true, msg
+end
+
+--------------------------------------------------------------------------------
+-- 防具：買う・つける・はずす
+--------------------------------------------------------------------------------
+
+armorAction.OnServerInvoke = function(player: Player, action: any, id: any)
+	local d = data[player]
+	local armor = Config.findArmor(id)
+	if not d or not armor then
+		return false, "その防具はありません"
+	end
+	local msg
+	if action == "buy" then
+		if d.armors[armor.id] then
+			return false, "もう持っています"
+		end
+		if d.coins < armor.price then
+			return false, string.format("コインが %d 足りません", armor.price - math.floor(d.coins))
+		end
+		d.coins -= armor.price
+		d.armors[armor.id] = true
+		-- 買ったら、そのまま身につける
+		d.armor[armor.slot] = armor.id
+		msg = string.format("🛡️ %s を手に入れた！", armor.name)
+	elseif action == "equip" then
+		if not d.armors[armor.id] then
+			return false, "まだ持っていません"
+		end
+		d.armor[armor.slot] = armor.id
+		msg = string.format("🛡️ %s を身につけた", armor.name)
+	elseif action == "remove" then
+		if d.armor[armor.slot] ~= armor.id then
+			return false, "身につけていません"
+		end
+		d.armor[armor.slot] = nil
+		msg = string.format("%s を はずした", armor.name)
+	else
+		return false, "エラー"
+	end
+	wearArmor(player)
+	applyStats(player)
 	syncStats(player)
 	save(player)
 	return true, msg

@@ -130,56 +130,312 @@ local function buildHub(): (SpawnLocation, Vector3)
 	return spawn, nestPos
 end
 
+-- 2点を結ぶ丸い棒（手すり・柱）
+local function rod(a: Vector3, b: Vector3, diameter: number, props: { [string]: any }): Part
+	props.Shape = Enum.PartType.Cylinder
+	props.Size = Vector3.new((b - a).Magnitude, diameter, diameter)
+	-- まっすぐ上を向く棒は、上の向きを横にしておく（向きが決まらなくなるのを ふせぐ）
+	local dir = (b - a).Unit
+	local up = if math.abs(dir.Y) > 0.99 then Vector3.xAxis else Vector3.yAxis
+	props.CFrame = CFrame.lookAt((a + b) / 2, b, up) * CFrame.Angles(0, math.pi / 2, 0)
+	return part(props)
+end
+
+-- ルームランナー（ジムにある本物に近い形）。前は -Z（操作パネルがある方）、ベルトは後ろ（+Z）へ流れる
+-- 乗るときは、後ろ半分の横にある ふみ台から
 local function buildTreadmill(cfg, index: number, position: Vector3)
 	local folder = Instance.new("Model")
 	folder.Name = "Treadmill" .. index
 	folder.Parent = world
 
+	local DARK = Color3.fromRGB(38, 38, 46)
+	local FRAME = Color3.fromRGB(58, 60, 70)
+	local SILVER = Color3.fromRGB(190, 195, 205)
+	local RUBBER = Color3.fromRGB(22, 22, 26)
+	local function at(x: number, y: number, z: number): Vector3
+		return position + Vector3.new(x, y, z)
+	end
+
+	-- 下にしくマット
 	part({
-		Name = "Base",
-		Size = Vector3.new(12, 1, 20),
-		Position = position + Vector3.new(0, 0.5, 0),
-		Color = Color3.fromRGB(45, 45, 55),
+		Name = "Mat",
+		Size = Vector3.new(16, 0.12, 26),
+		Position = at(0, 0.06, 0),
+		Color = cfg.color:Lerp(Color3.new(0, 0, 0), 0.7),
+		Material = Enum.Material.Rubber,
+		Parent = folder,
+	})
+
+	-- 走る台：ベルトの下の板と、左右のフレーム（上は すべり止めの ふみ板）
+	part({
+		Name = "Deck",
+		Size = Vector3.new(8, 0.8, 18.6),
+		Position = at(0, 0.6, 0),
+		Color = DARK,
+		Material = Enum.Material.Metal,
 		Parent = folder,
 	})
 	local belt = part({
 		Name = "Belt",
 		Size = Vector3.new(8, 0.4, 18),
-		Position = position + Vector3.new(0, 1.2, 0),
-		Color = cfg.color:Lerp(Color3.new(0, 0, 0), 0.45),
-		Material = Enum.Material.DiamondPlate,
+		Position = at(0, 1.2, 0),
+		Color = RUBBER,
+		Material = Enum.Material.Rubber,
 		Parent = folder,
 	})
-	for _, x in { -4.6, 4.6 } do
+	for _, x in { -4.8, 4.8 } do
 		part({
-			Name = "Rail",
-			Size = Vector3.new(1, 1, 18),
-			Position = position + Vector3.new(x, 3.4, 0),
-			Color = cfg.color,
+			Name = "SideFrame",
+			Size = Vector3.new(1.6, 1.2, 21),
+			Position = at(x, 0.8, -0.4),
+			Color = FRAME,
 			Material = Enum.Material.Metal,
 			Parent = folder,
 		})
 		part({
-			Name = "RailPost",
-			Size = Vector3.new(0.6, 2.4, 0.6),
-			Position = position + Vector3.new(x, 2.2, -8),
+			Name = "FootRail",
+			Size = Vector3.new(1.4, 0.12, 18.6),
+			Position = at(x, 1.46, 0),
+			Color = SILVER,
+			Material = Enum.Material.DiamondPlate,
+			Parent = folder,
+		})
+		-- マシンの色の線（どのマシンか 色でわかる）
+		part({
+			Name = "Accent",
+			Size = Vector3.new(0.12, 0.3, 20.6),
+			Position = at(x + (if x > 0 then 0.8 else -0.8), 0.95, -0.4),
 			Color = cfg.color,
+			Material = Enum.Material.Neon,
+			Parent = folder,
+		})
+		-- 後ろ半分の横の ふみ台（ここから乗る）
+		part({
+			Name = "Step",
+			Size = Vector3.new(2.4, 0.7, 9),
+			Position = at(x + (if x > 0 then 2 else -2), 0.35, 5),
+			Color = DARK,
+			Material = Enum.Material.DiamondPlate,
+			Parent = folder,
+		})
+		-- 足（ゴム）
+		for _, z in { -9.5, 9 } do
+			part({
+				Name = "Foot",
+				Size = Vector3.new(1.9, 0.3, 1.4),
+				Position = at(x, 0.15, z),
+				Color = RUBBER,
+				Material = Enum.Material.Rubber,
+				Parent = folder,
+			})
+		end
+	end
+	-- ベルトを回す 前と後ろのローラー
+	for _, z in { -9.1, 9.1 } do
+		part({
+			Name = "Roller",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(8, 1.1, 1.1),
+			Position = at(0, 0.88, z),
+			Color = SILVER,
+			Material = Enum.Material.Metal,
 			Parent = folder,
 		})
 	end
-	-- 後ろの壁（ベルトに押し戻されても落ちない）と、上の看板
-	local back = part({
-		Name = "BackWall",
-		Size = Vector3.new(12, 7, 1),
-		Position = position + Vector3.new(0, 4, 10.5),
+	-- ベルトの白い線（それぞれの画面で 後ろへ流れて見える。動かすのは Treadmill.client）
+	for i = 0, 5 do
+		part({
+			Name = "Stripe",
+			Size = Vector3.new(7.4, 0.04, 0.3),
+			Position = at(0, 1.41, -7.5 + i * 3),
+			Color = Color3.fromRGB(85, 85, 92),
+			Material = Enum.Material.SmoothPlastic,
+			CanCollide = false,
+			CanQuery = false,
+			CanTouch = false,
+			CastShadow = false,
+			Parent = folder,
+		})
+	end
+
+	-- 前のモーターカバー
+	part({
+		Name = "MotorCover",
+		Size = Vector3.new(11.2, 1.7, 3.2),
+		Position = at(0, 1.05, -10.8),
+		Color = DARK,
+		Material = Enum.Material.SmoothPlastic,
+		Parent = folder,
+	})
+	part({
+		Name = "MotorSlope",
+		Size = Vector3.new(11.2, 0.3, 2.4),
+		CFrame = CFrame.new(at(0, 1.75, -9.5)) * CFrame.Angles(math.rad(22), 0, 0),
+		Color = FRAME,
+		Material = Enum.Material.SmoothPlastic,
+		Parent = folder,
+	})
+	part({
+		Name = "MotorAccent",
+		Size = Vector3.new(11.3, 0.25, 0.2),
+		Position = at(0, 1.6, -12.4),
+		Color = cfg.color,
+		Material = Enum.Material.Neon,
+		Parent = folder,
+	})
+	for i = -2, 2 do
+		part({
+			Name = "Vent",
+			Size = Vector3.new(1.2, 0.12, 0.1),
+			Position = at(i * 1.7, 0.9, -12.42),
+			Color = Color3.fromRGB(12, 12, 14),
+			Parent = folder,
+		})
+	end
+
+	-- 左右の柱（少し手前へ かたむく）と、操作パネル
+	local metal = { Color = SILVER, Material = Enum.Material.Metal, Parent = folder }
+	local function metalRod(name: string, a: Vector3, b: Vector3, diameter: number)
+		local props = table.clone(metal)
+		props.Name = name
+		return rod(a, b, diameter, props)
+	end
+	for _, x in { -4.8, 4.8 } do
+		metalRod("Upright", at(x, 1.4, -10.9), at(x, 7.4, -9.7), 0.75)
+		-- 手すり：柱から後ろへのびる。にぎる所は黒いゴム
+		metalRod("Handrail", at(x, 5.4, -10.1), at(x, 4.9, -5.2), 0.55)
+		rod(at(x, 4.9, -5.2), at(x, 4.75, -3.2), 0.72, {
+			Name = "Grip",
+			Color = RUBBER,
+			Material = Enum.Material.Rubber,
+			Parent = folder,
+		})
+		part({
+			Name = "GripEnd",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(0.8, 0.8, 0.8),
+			Position = at(x, 4.75, -3.2),
+			Color = cfg.color,
+			Material = Enum.Material.SmoothPlastic,
+			Parent = folder,
+		})
+	end
+	-- 前の横の手すり（心拍をはかる 金色の板つき）
+	metalRod("FrontBar", at(-4.8, 5.4, -10.1), at(4.8, 5.4, -10.1), 0.55)
+	for _, x in { -1.6, 1.6 } do
+		rod(at(x - 0.7, 5.4, -10.1), at(x + 0.7, 5.4, -10.1), 0.66, {
+			Name = "PulseSensor",
+			Color = Color3.fromRGB(235, 200, 90),
+			Material = Enum.Material.Metal,
+			Parent = folder,
+		})
+	end
+
+	-- 操作パネル：上が向こうへ たおれた板。こっち向き（+Z）の面が画面
+	local tilt = CFrame.new(at(0, 7.3, -9.9)) * CFrame.Angles(math.rad(-18), 0, 0)
+	part({
+		Name = "ConsoleBack",
+		Size = Vector3.new(11, 3.3, 0.5),
+		CFrame = tilt * CFrame.new(0, 0, -0.3),
 		Color = cfg.color,
 		Material = Enum.Material.SmoothPlastic,
+		Parent = folder,
+	})
+	local console = part({
+		Name = "Console",
+		Size = Vector3.new(10.6, 2.9, 0.6),
+		CFrame = tilt,
+		Color = DARK,
+		Material = Enum.Material.SmoothPlastic,
+		Parent = folder,
+	})
+	local screen = part({
+		Name = "Screen",
+		Size = Vector3.new(6.4, 2.1, 0.1),
+		CFrame = tilt * CFrame.new(-1.6, 0.1, 0.32),
+		Color = Color3.fromRGB(8, 14, 22),
+		Material = Enum.Material.Glass,
 		Parent = folder,
 	})
 	local reqText = if cfg.required > 0
 		then string.format("必要スピード %d", cfg.required)
 		else "だれでも使える"
-	label(back, string.format("%s\n+%d スピード/秒\n%s", cfg.name, cfg.gain, reqText), 7, 14, 6, cfg.color)
+	do
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = Enum.NormalId.Back
+		sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		sg.PixelsPerStud = 50
+		sg.LightInfluence = 0
+		sg.Parent = screen
+		local function line(y: number, h: number, textValue: string, color: Color3)
+			local t = Instance.new("TextLabel")
+			t.Position = UDim2.new(0.04, 0, y, 0)
+			t.Size = UDim2.new(0.92, 0, h, 0)
+			t.BackgroundTransparency = 1
+			t.Font = Enum.Font.GothamBold
+			t.TextScaled = true
+			t.TextColor3 = color
+			t.Text = textValue
+			t.Parent = sg
+		end
+		line(0.04, 0.26, cfg.name, cfg.color)
+		line(0.3, 0.44, string.format("⚡ +%d /秒", cfg.gain), Color3.fromRGB(120, 255, 170))
+		line(0.74, 0.22, reqText, Color3.fromRGB(200, 210, 225))
+	end
+	-- ボタン：スタート（緑）、ストップ（赤）、速さの上下
+	local buttonColors = {
+		Color3.fromRGB(60, 200, 90),
+		Color3.fromRGB(230, 60, 60),
+		Color3.fromRGB(70, 130, 230),
+		Color3.fromRGB(70, 130, 230),
+	}
+	for i, color in buttonColors do
+		local column, line = (i - 1) % 2, (i - 1) // 2
+		part({
+			Name = "Button",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.16, 0.75, 0.75),
+			CFrame = tilt * CFrame.new(2.7 + column * 1.3, 0.55 - line * 1.1, 0.34) * CFrame.Angles(0, math.pi / 2, 0),
+			Color = color,
+			Material = Enum.Material.Neon,
+			Parent = folder,
+		})
+	end
+	-- 安全キー（赤い ひも）
+	part({
+		Name = "SafetyKey",
+		Size = Vector3.new(0.6, 0.3, 0.2),
+		CFrame = tilt * CFrame.new(-1.6, -1.25, 0.36),
+		Color = Color3.fromRGB(230, 40, 40),
+		Parent = folder,
+	})
+	rod((tilt * CFrame.new(-1.6, -1.25, 0.4)).Position, at(-1.2, 5.0, -8.6), 0.08, {
+		Name = "SafetyCord",
+		Color = Color3.fromRGB(230, 40, 40),
+		CanCollide = false,
+		Parent = folder,
+	})
+	-- 遠くからでも読める 浮かぶ文字
+	label(console, string.format("%s\n+%d スピード/秒\n%s", cfg.name, cfg.gain, reqText), 5.5, 14, 6, cfg.color)
+
+	-- 後ろ：ベルトに流されても落ちないように、低い さくと 見えない壁
+	for _, x in { -5.4, 5.4 } do
+		metalRod("RearPost", at(x, 0, 10.4), at(x, 3.4, 10.4), 0.5)
+	end
+	rod(at(-5.4, 3.4, 10.4), at(5.4, 3.4, 10.4), 0.5, {
+		Name = "RearBar",
+		Color = cfg.color,
+		Material = Enum.Material.Metal,
+		Parent = folder,
+	})
+	metalRod("RearBarLow", at(-5.4, 2.2, 10.4), at(5.4, 2.2, 10.4), 0.35)
+	part({
+		Name = "BackWall",
+		Size = Vector3.new(12, 8, 1),
+		Position = at(0, 4, 10.5),
+		Transparency = 1,
+		Parent = folder,
+	})
 
 	return {
 		belt = belt,

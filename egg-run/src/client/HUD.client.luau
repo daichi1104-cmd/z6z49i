@@ -4,6 +4,7 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
@@ -19,6 +20,7 @@ local hatchEgg = remotes:WaitForChild("HatchEgg") :: RemoteFunction
 local dailyAction = remotes:WaitForChild("DailyAction") :: RemoteFunction
 local useSkill = remotes:WaitForChild("UseSkill") :: RemoteFunction
 local weaponAction = remotes:WaitForChild("WeaponAction") :: RemoteFunction
+local armorAction = remotes:WaitForChild("ArmorAction") :: RemoteFunction
 local screenFxEvent = remotes:WaitForChild("ScreenFx") :: RemoteEvent
 
 local player = Players.LocalPlayer
@@ -108,6 +110,57 @@ local function text(parent: Instance, props: { [string]: any }): TextLabel
 	end
 	t.Parent = parent
 	return t
+end
+
+local function stroke(parent: Instance, color: Color3, thickness: number): UIStroke
+	local st = Instance.new("UIStroke")
+	st.Color = color
+	st.Thickness = thickness
+	st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	st.Parent = parent
+	return st
+end
+
+-- 上から下へ、色が少しずつ変わる（立体っぽく見える）
+local function gradient(parent: Instance, top: Color3, bottom: Color3)
+	local g = Instance.new("UIGradient")
+	g.Color = ColorSequence.new(top, bottom)
+	g.Rotation = 90
+	g.Parent = parent
+end
+
+-- 音（Roblox に はじめから入っている音）
+local function makeSound(id: string, volume: number): Sound
+	local sound = Instance.new("Sound")
+	sound.SoundId = id
+	sound.Volume = volume
+	sound.Parent = gui
+	return sound
+end
+local clickSound = makeSound("rbxasset://sounds/clickfast.wav", 0.5)
+local rewardSound = makeSound("rbxasset://sounds/electronicpingshort.wav", 0.7)
+local function play(sound: Sound)
+	pcall(function()
+		SoundService:PlayLocalSound(sound)
+	end)
+end
+
+-- 押すと ぷにっと へこんで、はねて もどるボタンにする
+local function juicy(b: GuiButton)
+	local scale = Instance.new("UIScale")
+	scale.Parent = b
+	local function release()
+		TweenService:Create(scale, TweenInfo.new(0.25, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	end
+	b.MouseButton1Down:Connect(function()
+		TweenService:Create(scale, TweenInfo.new(0.06), { Scale = 0.9 }):Play()
+	end)
+	b.MouseButton1Up:Connect(release)
+	b.MouseLeave:Connect(release)
+	b.Activated:Connect(function()
+		play(clickSound)
+		release()
+	end)
 end
 
 -- 右上のステータス（じゃまにならないよう小さめ）
@@ -347,56 +400,78 @@ shop.ZIndex = 5
 shop.Parent = gui
 corner(shop, 14)
 local sizeLimit = Instance.new("UISizeConstraint")
-sizeLimit.MaxSize = Vector2.new(460, 560)
+sizeLimit.MaxSize = Vector2.new(460, 590)
 sizeLimit.Parent = shop
+stroke(shop, Color3.fromRGB(120, 130, 200), 2)
+gradient(shop, Color3.fromRGB(255, 255, 255), Color3.fromRGB(170, 170, 200))
+-- 開くとき、ぽんっと大きくなる
+local shopScale = Instance.new("UIScale")
+shopScale.Parent = shop
 
 local shopTitle = text(shop, {
 	Position = UDim2.new(0, 14, 0, 8),
-	Size = UDim2.new(1, -70, 0, 30),
+	Size = UDim2.new(1, -70, 0, 32),
 	Text = "🛒 ショップ",
 	TextXAlignment = Enum.TextXAlignment.Left,
+	TextColor3 = Color3.fromRGB(255, 235, 150),
 	ZIndex = 6,
 })
 local closeButton = Instance.new("TextButton")
 closeButton.AnchorPoint = Vector2.new(1, 0)
 closeButton.Position = UDim2.new(1, -8, 0, 8)
-closeButton.Size = UDim2.new(0, 40, 0, 32)
-closeButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+closeButton.Size = UDim2.new(0, 36, 0, 36)
+closeButton.BackgroundColor3 = Color3.fromRGB(220, 70, 70)
 closeButton.Font = Enum.Font.GothamBold
 closeButton.TextScaled = true
 closeButton.TextColor3 = Color3.new(1, 1, 1)
 closeButton.Text = "✕"
 closeButton.ZIndex = 6
 closeButton.Parent = shop
-corner(closeButton, 8)
+corner(closeButton, 18)
+juicy(closeButton)
 
-local tabs = {}
--- タブは 2段（上に 4つ、下に 3つ）
-local function makeTab(label: string, column: number, line: number)
-	local perLine = if line == 1 then 4 else 3
+-- タブは 2段（4つずつ）。タブごとの色。えらんだタブだけ 明るく光る
+local TAB_INFO = {
+	{ id = "items", icon = "👟", name = "道具", color = Color3.fromRGB(60, 170, 90) },
+	{ id = "weapons", icon = "⚔️", name = "武器", color = Color3.fromRGB(220, 80, 70) },
+	{ id = "armor", icon = "🛡️", name = "防具", color = Color3.fromRGB(70, 130, 230) },
+	{ id = "dragons", icon = "🐉", name = "仲間", color = Color3.fromRGB(150, 80, 210) },
+	{ id = "book", icon = "📖", name = "図鑑", color = Color3.fromRGB(40, 150, 160) },
+	{ id = "cage", icon = "🥚", name = "檻", color = Color3.fromRGB(220, 140, 40) },
+	{ id = "daily", icon = "🎁", name = "毎日", color = Color3.fromRGB(225, 80, 125) },
+	{ id = "trophy", icon = "🏆", name = "実績", color = Color3.fromRGB(200, 160, 30) },
+}
+local tabs: { [string]: TextButton } = {}
+local tabColors: { [string]: Color3 } = {}
+local tabStrokes: { [string]: UIStroke } = {}
+for i, info in TAB_INFO do
+	local column, line = (i - 1) % 4, (i - 1) // 4
 	local b = Instance.new("TextButton")
-	b.Position = UDim2.new(column / perLine, 4, 0, 44 + (line - 1) * 36)
-	b.Size = UDim2.new(1 / perLine, -8, 0, 32)
-	b.Font = Enum.Font.GothamBold
-	b.TextScaled = true
-	b.TextColor3 = Color3.new(1, 1, 1)
-	b.Text = label
+	b.Position = UDim2.new(column / 4, 4, 0, 46 + line * 38)
+	b.Size = UDim2.new(1 / 4, -8, 0, 34)
+	b.Text = ""
+	b.BackgroundColor3 = info.color
 	b.ZIndex = 6
 	b.Parent = shop
-	corner(b, 8)
-	return b
+	corner(b, 10)
+	-- スマホの横画面でも 下の一覧が広く見えるよう、絵と名前は 1行に
+	text(b, {
+		Position = UDim2.new(0, 4, 0, 5),
+		Size = UDim2.new(1, -8, 1, -10),
+		Text = info.icon .. " " .. info.name,
+		ZIndex = 7,
+	})
+	local st = stroke(b, Color3.new(1, 1, 1), 2)
+	st.Transparency = 1
+	juicy(b)
+	tabs[info.id] = b
+	tabColors[info.id] = info.color
+	tabStrokes[info.id] = st
 end
-tabs.items = makeTab("👟 道具", 0, 1)
-tabs.weapons = makeTab("⚔️ 武器", 1, 1)
-tabs.dragons = makeTab("🐉 仲間", 2, 1)
-tabs.book = makeTab("📖 図鑑", 3, 1)
-tabs.cage = makeTab("🥚 檻", 0, 2)
-tabs.daily = makeTab("📅 毎日", 1, 2)
-tabs.trophy = makeTab("🏆 実績", 2, 2)
 
 local list = Instance.new("ScrollingFrame")
-list.Position = UDim2.new(0, 8, 0, 120)
-list.Size = UDim2.new(1, -16, 1, -128)
+list.Position = UDim2.new(0, 8, 0, 124)
+list.Size = UDim2.new(1, -16, 1, -132)
 list.BackgroundTransparency = 1
 list.BorderSizePixel = 0
 list.ScrollBarThickness = 6
@@ -426,10 +501,20 @@ local function row(
 	local f = Instance.new("Frame")
 	f.LayoutOrder = order
 	f.Size = UDim2.new(1, -8, 0, 62)
-	f.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+	f.BackgroundColor3 = Color3.fromRGB(58, 58, 82)
 	f.ZIndex = 6
 	f.Parent = list
 	corner(f, 10)
+	gradient(f, Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 215))
+	-- 左のふちに、レア度などの色
+	local stripe = Instance.new("Frame")
+	stripe.Position = UDim2.new(0, 0, 0, 8)
+	stripe.Size = UDim2.new(0, 4, 1, -16)
+	stripe.BorderSizePixel = 0
+	stripe.BackgroundColor3 = nameColor or Color3.fromRGB(120, 125, 170)
+	stripe.ZIndex = 7
+	stripe.Parent = f
+	corner(stripe, 2)
 	text(f, {
 		Position = UDim2.new(0, 10, 0, 6),
 		Size = UDim2.new(1, -130, 0, 26),
@@ -461,6 +546,7 @@ local function row(
 	b.Parent = f
 	corner(b, 8)
 	if enabled then
+		juicy(b)
 		b.Activated:Connect(function()
 			if busy then
 				return
@@ -540,6 +626,7 @@ local function actionRow(
 		pad.PaddingBottom = UDim.new(0, 4)
 		pad.Parent = b
 		if info.enabled then
+			juicy(b)
 			b.Activated:Connect(function()
 				if busy then
 					return
@@ -556,10 +643,10 @@ local function actionRow(
 end
 
 -- 見出し（タブの中の区切り）
-local function heading(order: number, label: string)
+local function heading(order: number, label: string, height: number?)
 	local f = Instance.new("Frame")
 	f.LayoutOrder = order
-	f.Size = UDim2.new(1, -8, 0, 26)
+	f.Size = UDim2.new(1, -8, 0, height or 26)
 	f.BackgroundTransparency = 1
 	f.ZIndex = 6
 	f.Parent = list
@@ -576,6 +663,7 @@ end
 local cageRows: { { desc: TextLabel, button: TextButton, slot: number } } = {}
 local updateCageRows: () -> ()
 local showHatch: (string, boolean, string?) -> ()
+local openLogin: () -> ()
 
 -- ドラゴンの説明に、こうげき力をつけ足す（level があれば、レベルで強くなった数字）
 local function dragonDesc(dragon, level: number?): string
@@ -1229,15 +1317,11 @@ local function renderDaily()
 			then string.format("今日は %d日目！", login.day)
 			else "今日のぶんは もらったよ",
 		"7日目は ふしぎなたまご つき。1日休むと 1日目から",
-		if login.canClaim then "受け取る" else "また明日",
-		if login.canClaim then GREEN else GRAY,
-		login.canClaim,
+		if login.canClaim then "🎁 ひらく" else "カレンダー",
+		if login.canClaim then GREEN else BLUE,
+		true,
 		function()
-			local ok, msg, id, isNew = dailyAction:InvokeServer("login")
-			toast(msg, ok)
-			if ok and id then
-				showHatch(id, isNew, "🥚 ふしぎなたまごが かえった！")
-			end
+			openLogin()
 		end
 	)
 
@@ -1453,6 +1537,67 @@ local function renderWeapons()
 	end
 end
 
+-- 防具：場所ごとに 2種類 × 5つのレア度。買う・つける・はずす
+local function renderArmor()
+	local owned = decode("Armors")
+	local wearing = decode("Armor")
+	local count = 0
+	for _ in owned do
+		count += 1
+	end
+	shopTitle.Text = string.format("🛡️ 防具 %d / %d　🪙 %s", count, #Config.Armors, short(coinValue.Value))
+	local total = Config.armorBonusText(Config.armorBonus(wearing))
+	heading(
+		0,
+		if total ~= ""
+			then "いまの力：" .. total
+			else "防具をつけると 強くなって、見た目も変わる！",
+		34
+	)
+	for si, slot in Config.ArmorSlots do
+		local on = Config.findArmor(wearing[slot.id])
+		heading(
+			si * 100,
+			string.format("%s %s：%s", slot.icon, slot.name, if on then on.name else "なにも つけていない")
+		)
+		for ki, kind in Config.ArmorKinds do
+			if kind.slot ~= slot.id then
+				continue
+			end
+			for _, a in Config.Armors do
+				if a.kind ~= kind.kind then
+					continue
+				end
+				local has = owned[a.id] == true
+				local isOn = wearing[slot.id] == a.id
+				local label, color, action
+				if isOn then
+					label, color, action = "はずす", ORANGE, "remove"
+				elseif has then
+					label, color, action = "つける", BLUE, "equip"
+				else
+					label = if a.price == 0 then "無料でもらう" else "🪙 " .. short(a.price)
+					color = if coinValue.Value >= a.price then GREEN else Color3.fromRGB(150, 90, 60)
+					action = "buy"
+				end
+				row(
+					si * 100 + ki * 10 + a.rarity,
+					string.format("%s%s %s", if isOn then "✅" else "", string.rep("★", a.rarity), a.name),
+					Config.armorBonusText(a.bonus),
+					label,
+					color,
+					true,
+					function()
+						local ok, msg = armorAction:InvokeServer(action, a.id)
+						toast(msg, ok)
+					end,
+					Config.Rarities[a.rarity].color
+				)
+			end
+		end
+	end
+end
+
 render = function()
 	for _, c in list:GetChildren() do
 		if c:IsA("Frame") then
@@ -1460,7 +1605,9 @@ render = function()
 		end
 	end
 	for name, b in tabs do
-		b.BackgroundColor3 = if currentTab == name then BLUE else GRAY
+		local on = currentTab == name
+		b.BackgroundColor3 = if on then tabColors[name] else tabColors[name]:Lerp(Color3.fromRGB(30, 30, 45), 0.62)
+		tabStrokes[name].Transparency = if on then 0 else 1
 	end
 	table.clear(cageRows)
 	table.clear(liveUpdaters)
@@ -1492,6 +1639,8 @@ render = function()
 		renderDaily()
 	elseif currentTab == "weapons" then
 		renderWeapons()
+	elseif currentTab == "armor" then
+		renderArmor()
 	elseif currentTab == "trophy" then
 		renderTrophies()
 	else
@@ -1524,6 +1673,10 @@ local function openShop(tab: string?)
 	if tab then
 		currentTab = tab
 	end
+	if not shop.Visible then
+		shopScale.Scale = 0.85
+		TweenService:Create(shopScale, TweenInfo.new(0.22, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	end
 	shop.Visible = true
 	render()
 	updateCageRows()
@@ -1553,6 +1706,8 @@ for _, attr in
 		"SecretOpen",
 		"Weapons",
 		"Weapon",
+		"Armors",
+		"Armor",
 	}
 do
 	player:GetAttributeChangedSignal(attr):Connect(function()
@@ -1574,49 +1729,90 @@ player:GetAttributeChangedSignal("Xp"):Connect(function()
 	end
 end)
 
--- 左のボタン（スマホのジャンプボタンと重ならない位置）
-local function sideButton(label: string, y: number, color: Color3, onClick: () -> ()): TextButton
+-- 左のメニュー：絵のついた四角いボタンを 2列にならべる（スマホのジャンプボタンと重ならない位置）
+-- 返すもの：ボタンと、右上の赤い丸（お知らせ）を出す関数
+local function menuButton(
+	index: number,
+	icon: string,
+	label: string,
+	color: Color3,
+	onClick: () -> ()
+): (TextButton, (string?) -> ())
+	local column, line = (index - 1) % 2, (index - 1) // 2
 	local b = Instance.new("TextButton")
 	b.AnchorPoint = Vector2.new(0, 0.5)
-	b.Position = UDim2.new(0, 10, 0.42, y)
-	b.Size = UDim2.new(0, 116, 0, 36)
+	b.Position = UDim2.new(0, 8 + column * 62, 0.42, (line - 1.5) * 62)
+	b.Size = UDim2.new(0, 56, 0, 56)
 	b.BackgroundColor3 = color
-	b.Font = Enum.Font.GothamBold
-	b.TextScaled = true
-	b.TextColor3 = Color3.new(1, 1, 1)
-	b.Text = label
+	b.Text = ""
 	b.Parent = gui
-	corner(b, 10)
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, 8)
-	pad.PaddingRight = UDim.new(0, 8)
-	pad.PaddingTop = UDim.new(0, 5)
-	pad.PaddingBottom = UDim.new(0, 5)
-	pad.Parent = b
+	corner(b, 14)
+	gradient(b, Color3.new(1, 1, 1), Color3.fromRGB(175, 175, 190))
+	local st = stroke(b, Color3.new(1, 1, 1), 2)
+	st.Transparency = 0.45
+	text(b, { Position = UDim2.new(0, 0, 0, 4), Size = UDim2.new(1, 0, 0, 30), Text = icon })
+	text(b, {
+		Position = UDim2.new(0, 2, 1, -20),
+		Size = UDim2.new(1, -4, 0, 15),
+		Text = label,
+		TextStrokeTransparency = 0.5,
+	})
+	local badge = text(b, {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(1, -5, 0, 5),
+		Size = UDim2.new(0, 22, 0, 22),
+		BackgroundTransparency = 0,
+		BackgroundColor3 = Color3.fromRGB(235, 50, 60),
+		Visible = false,
+		ZIndex = 3,
+	})
+	corner(badge, 11)
+	stroke(badge, Color3.new(1, 1, 1), 2)
+	local badgeScale = Instance.new("UIScale")
+	badgeScale.Parent = badge
+	juicy(b)
 	b.Activated:Connect(onClick)
-	return b
+	local shown: string? = nil
+	return b,
+		function(value: string?)
+			badge.Visible = value ~= nil
+			badge.Text = value or ""
+			local changed = value ~= shown
+			shown = value
+			if value and changed then
+				-- 気づくように、どくんと ふくらむ
+				badgeScale.Scale = 1.35
+				TweenService:Create(badgeScale, TweenInfo.new(0.5, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+			end
+		end
 end
 
-sideButton("🛒 ショップ", -105, GREEN, function()
+menuButton(1, "🛒", "ショップ", GREEN, function()
 	if shop.Visible then
 		shop.Visible = false
 	else
 		openShop("items")
 	end
 end)
-sideButton("🐉 仲間", -63, Color3.fromRGB(140, 70, 200), function()
+menuButton(2, "⚔️", "武器", Color3.fromRGB(220, 80, 70), function()
+	openShop("weapons")
+end)
+menuButton(3, "🛡️", "防具", Color3.fromRGB(70, 130, 230), function()
+	openShop("armor")
+end)
+menuButton(4, "🐉", "仲間", Color3.fromRGB(150, 80, 210), function()
 	openShop("dragons")
 end)
-sideButton("📖 図鑑", -21, Color3.fromRGB(40, 150, 160), function()
+menuButton(5, "📖", "図鑑", Color3.fromRGB(40, 150, 160), function()
 	openShop("book")
 end)
-local cageButton = sideButton("🥚 檻", 21, Color3.fromRGB(220, 140, 40), function()
+local _, setCageBadge = menuButton(6, "🥚", "檻", Color3.fromRGB(220, 140, 40), function()
 	openShop("cage")
 end)
-local dailyButton = sideButton("📅 毎日", 63, Color3.fromRGB(220, 80, 120), function()
+local _, setDailyBadge = menuButton(7, "🎁", "毎日", Color3.fromRGB(225, 80, 125), function()
 	openShop("daily")
 end)
-sideButton("🏠 ベースへ", 105, BLUE, function()
+menuButton(8, "🏠", "ベースへ", BLUE, function()
 	goHome:FireServer()
 end)
 
@@ -1800,7 +1996,7 @@ end
 
 closePopup.Activated:Connect(function()
 	hatchPopup.Visible = false
-	toast("「🐉 仲間」から いつでも えらべるよ", true)
+	toast("左の「🐉 仲間」から いつでも えらべるよ", true)
 end)
 equipNew.Activated:Connect(function()
 	hatchPopup.Visible = false
@@ -1809,6 +2005,294 @@ equipNew.Activated:Connect(function()
 		toast(msg, ok)
 	end
 end)
+
+-- ログインボーナスの画面：7日分のカードがならぶカレンダー。今日のカードが光って はずむ
+local loginDim = Instance.new("TextButton")
+loginDim.Size = UDim2.fromScale(1, 1)
+loginDim.BackgroundColor3 = Color3.new(0, 0, 0)
+loginDim.BackgroundTransparency = 0.45
+loginDim.AutoButtonColor = false
+loginDim.Text = ""
+loginDim.Visible = false
+loginDim.ZIndex = 30
+loginDim.Parent = gui
+local loginCard = Instance.new("Frame")
+loginCard.AnchorPoint = Vector2.new(0.5, 0.5)
+loginCard.Position = UDim2.fromScale(0.5, 0.5)
+loginCard.Size = UDim2.fromScale(0.94, 0.88)
+loginCard.BackgroundColor3 = Color3.fromRGB(70, 50, 150)
+loginCard.ZIndex = 31
+loginCard.Parent = loginDim
+corner(loginCard, 18)
+stroke(loginCard, Color3.fromRGB(255, 215, 90), 3)
+gradient(loginCard, Color3.new(1, 1, 1), Color3.fromRGB(110, 140, 230))
+do
+	local limit = Instance.new("UISizeConstraint")
+	limit.MaxSize = Vector2.new(440, 440)
+	limit.Parent = loginCard
+end
+local loginScale = Instance.new("UIScale")
+loginScale.Parent = loginCard
+text(loginCard, {
+	Position = UDim2.new(0, 12, 0, 10),
+	Size = UDim2.new(1, -60, 0, 34),
+	Text = "🎁 ログインボーナス",
+	TextColor3 = Color3.fromRGB(255, 230, 120),
+	TextStrokeTransparency = 0.4,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 32,
+})
+local loginSub = text(loginCard, {
+	Position = UDim2.new(0, 12, 0, 46),
+	Size = UDim2.new(1, -24, 0, 20),
+	Font = Enum.Font.Gotham,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 32,
+})
+local loginClose = Instance.new("TextButton")
+loginClose.AnchorPoint = Vector2.new(1, 0)
+loginClose.Position = UDim2.new(1, -8, 0, 8)
+loginClose.Size = UDim2.new(0, 36, 0, 36)
+loginClose.BackgroundColor3 = Color3.fromRGB(220, 70, 70)
+loginClose.Font = Enum.Font.GothamBold
+loginClose.TextScaled = true
+loginClose.TextColor3 = Color3.new(1, 1, 1)
+loginClose.Text = "✕"
+loginClose.ZIndex = 32
+loginClose.Parent = loginCard
+corner(loginClose, 18)
+juicy(loginClose)
+local loginCells = Instance.new("Frame")
+loginCells.Position = UDim2.new(0, 10, 0, 74)
+loginCells.Size = UDim2.new(1, -20, 1, -150)
+loginCells.BackgroundTransparency = 1
+loginCells.ZIndex = 32
+loginCells.Parent = loginCard
+local loginButton = Instance.new("TextButton")
+loginButton.AnchorPoint = Vector2.new(0.5, 1)
+loginButton.Position = UDim2.new(0.5, 0, 1, -12)
+loginButton.Size = UDim2.new(1, -24, 0, 54)
+loginButton.Font = Enum.Font.GothamBlack
+loginButton.TextScaled = true
+loginButton.TextColor3 = Color3.new(1, 1, 1)
+loginButton.TextStrokeTransparency = 0.5
+loginButton.ZIndex = 32
+loginButton.Parent = loginCard
+corner(loginButton, 14)
+stroke(loginButton, Color3.new(1, 1, 1), 2)
+do
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.PaddingLeft = UDim.new(0, 10)
+	pad.PaddingRight = UDim.new(0, 10)
+	pad.Parent = loginButton
+end
+juicy(loginButton)
+
+local loginToday: Frame? = nil -- 今日のカード
+local loginCoins = 0 -- 今日もらえるコイン
+local loginBusy = false
+
+-- カードに「もらった」の はんこを おす（pop = いま おしたところ。大きいのが どんっと おりてくる）
+local function stampCard(card: Frame, pop: boolean)
+	local mark = text(card, {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.75, 0.75),
+		Text = "✅",
+		Rotation = -12,
+		ZIndex = 36,
+	})
+	if pop then
+		local scale = Instance.new("UIScale")
+		scale.Scale = 3
+		scale.Parent = mark
+		TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	end
+end
+
+local function renderLogin()
+	for _, c in loginCells:GetChildren() do
+		c:Destroy()
+	end
+	loginToday = nil
+	local p = profile()
+	local login = p.login or { canClaim = false, day = 1, streak = 0 }
+	local base = p.loginBase or 50
+	loginSub.Text = if login.canClaim
+		then string.format(
+			"今日で 連続 %d日目！ 毎日来ると ごほうびが ふえるよ",
+			login.streak or 1
+		)
+		else string.format("連続 %d日！ 明日も来ると 次の ごほうび", login.streak or 0)
+	for day, reward in Config.LoginRewards do
+		-- 上の段に 1〜4日目、下の段に 5・6日目と、大きな 7日目
+		local line = if day <= 4 then 0 else 1
+		local x = if day <= 4 then (day - 1) / 4 else (day - 5) / 4
+		local w = if day == 7 then 0.5 else 0.25
+		local isToday = day == login.day
+		local done = day < login.day or (isToday and not login.canClaim)
+		local glow = isToday and login.canClaim
+		local card = Instance.new("Frame")
+		card.Position = UDim2.new(x, 3, line * 0.5, 3)
+		card.Size = UDim2.new(w, -6, 0.5, -6)
+		card.BackgroundColor3 = if glow
+			then Color3.fromRGB(255, 200, 60)
+			elseif day == 7 then Color3.fromRGB(200, 90, 200)
+			else Color3.fromRGB(80, 95, 190)
+		card.BackgroundTransparency = if done then 0.55 else 0
+		card.ZIndex = 33
+		card.Parent = loginCells
+		corner(card, 12)
+		gradient(card, Color3.new(1, 1, 1), Color3.fromRGB(185, 185, 215))
+		local dark = glow
+		text(card, {
+			Position = UDim2.new(0, 4, 0, 4),
+			Size = UDim2.new(1, -8, 0.2, 0),
+			Text = if day == 7 then "7日目 🎉" else string.format("%d日目", day),
+			TextColor3 = if dark then Color3.fromRGB(70, 40, 0) else Color3.new(1, 1, 1),
+			ZIndex = 34,
+		})
+		text(card, {
+			Position = UDim2.new(0, 4, 0.24, 0),
+			Size = UDim2.new(1, -8, 0.44, 0),
+			Text = if reward.egg then "🪙🥚" else "🪙",
+			TextTransparency = if done then 0.5 else 0,
+			ZIndex = 34,
+		})
+		text(card, {
+			Position = UDim2.new(0, 4, 0.72, 0),
+			Size = UDim2.new(1, -8, 0.22, 0),
+			Text = if reward.egg then short(reward.coins * base) .. " ＋ たまご" else short(reward.coins * base),
+			TextColor3 = if dark then Color3.fromRGB(90, 50, 0) else Color3.fromRGB(255, 235, 140),
+			ZIndex = 34,
+		})
+		if done then
+			stampCard(card, false)
+		end
+		if glow then
+			loginToday = card
+			loginCoins = reward.coins * base
+			stroke(card, Color3.new(1, 1, 1), 3)
+			-- ふわふわ はずむ
+			local bounce = Instance.new("UIScale")
+			bounce.Parent = card
+			TweenService:Create(
+				bounce,
+				TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Scale = 1.07 }
+			):Play()
+			card.ZIndex = 35
+		end
+	end
+	if login.canClaim then
+		loginButton.Text = "🎁 受け取る！"
+		loginButton.BackgroundColor3 = GREEN
+	else
+		loginButton.Text = "また明日！"
+		loginButton.BackgroundColor3 = GRAY
+	end
+end
+
+local function closeLogin()
+	loginDim.Visible = false
+end
+
+-- コインが カードから 右上のコインの所へ 飛んでいく
+local function coinBurst(from: Vector2)
+	local target = moneyLabel.AbsolutePosition + moneyLabel.AbsoluteSize / 2
+	for i = 1, 14 do
+		local coin = text(gui, {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(from.X, from.Y),
+			Size = UDim2.fromOffset(30, 30),
+			Text = "🪙",
+			ZIndex = 60,
+		})
+		local spread = UDim2.fromOffset(from.X + math.random(-90, 90), from.Y + math.random(-80, 50))
+		TweenService:Create(coin, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Position = spread,
+		}):Play()
+		task.delay(0.3 + i * 0.04, function()
+			local fly = TweenService:Create(coin, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Position = UDim2.fromOffset(target.X, target.Y),
+				Size = UDim2.fromOffset(16, 16),
+			})
+			fly:Play()
+			fly.Completed:Wait()
+			play(rewardSound)
+			coin:Destroy()
+		end)
+	end
+end
+
+-- もらったコインの数を、まん中に 大きく出す
+local function bigGain(amount: number)
+	local label = text(gui, {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.3),
+		Size = UDim2.fromOffset(300, 60),
+		Text = string.format("+%s コイン！", short(amount)),
+		Font = Enum.Font.GothamBlack,
+		TextColor3 = Color3.fromRGB(255, 225, 90),
+		TextStrokeTransparency = 0,
+		ZIndex = 61,
+	})
+	local scale = Instance.new("UIScale")
+	scale.Scale = 0.3
+	scale.Parent = label
+	TweenService:Create(scale, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+	task.delay(1.3, function()
+		TweenService:Create(label, TweenInfo.new(0.4), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		task.wait(0.4)
+		label:Destroy()
+	end)
+end
+
+loginButton.Activated:Connect(function()
+	if loginBusy then
+		return
+	end
+	local card = loginToday
+	if not card then
+		closeLogin()
+		return
+	end
+	loginBusy = true
+	local coins = loginCoins
+	local center = card.AbsolutePosition + card.AbsoluteSize / 2
+	local ok, msg, id, isNew = dailyAction:InvokeServer("login")
+	if ok then
+		loginToday = nil
+		loginButton.Text = "やったね！"
+		loginButton.BackgroundColor3 = GRAY
+		if card.Parent then
+			stampCard(card, true)
+		end
+		play(rewardSound)
+		coinBurst(center)
+		bigGain(coins)
+		task.wait(1.6)
+		closeLogin()
+		if id then
+			showHatch(id, isNew, "🥚 ふしぎなたまごが かえった！")
+		end
+	else
+		toast(msg, false)
+		renderLogin()
+	end
+	loginBusy = false
+end)
+loginClose.Activated:Connect(closeLogin)
+
+openLogin = function()
+	shop.Visible = false
+	renderLogin()
+	loginDim.Visible = true
+	loginScale.Scale = 0.6
+	TweenService:Create(loginScale, TweenInfo.new(0.3, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+end
 
 -- 檻の中に、自分のたまごを表示する（自分の画面にだけ見える）
 local cageModel = workspace:WaitForChild("World"):WaitForChild("Incubator", 30)
@@ -1861,7 +2345,7 @@ task.spawn(function()
 				ready += 1
 			end
 		end
-		cageButton.Text = if ready > 0 then string.format("🐣 檻 (%d)", ready) else "🥚 檻"
+		setCageBadge(if ready > 0 then tostring(ready) else nil)
 		if ready > lastReady then
 			toast("🐣 檻のたまごが かえせるよ！", true)
 		end
@@ -1874,7 +2358,7 @@ task.spawn(function()
 				fn()
 			end
 		end
-		dailyButton.Text = if dailyHasSomething() then "📅 毎日 ❗" else "📅 毎日"
+		setDailyBadge(if dailyHasSomething() then "!" else nil)
 		refreshSkillButton()
 		local goldEnd = workspace:GetAttribute("GoldenEnd") or 0
 		goldenLabel.Visible = nowTime() < goldEnd
@@ -1907,6 +2391,6 @@ task.delay(2, function()
 	-- 今日のログインボーナスがまだなら、毎日のごほうびを開く
 	local p = profile()
 	if p.login and p.login.canClaim and not shop.Visible then
-		openShop("daily")
+		openLogin()
 	end
 end)

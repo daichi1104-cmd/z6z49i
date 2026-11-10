@@ -472,23 +472,6 @@ function Weapons.build(weapon): Tool
 		local sparkles = Instance.new("Sparkles")
 		sparkles.SparkleColor = m.color2
 		sparkles.Parent = handle
-		-- ふると、刃の通った所に光の軌跡が残る
-		local tip = b.tips[1] or v(0, 0, 4)
-		local a0 = Instance.new("Attachment")
-		a0.Position = offset:PointToObjectSpace(v(0, 0, 0.8))
-		a0.Parent = handle
-		local a1 = Instance.new("Attachment")
-		a1.Position = offset:PointToObjectSpace(tip)
-		a1.Parent = handle
-		local trail = Instance.new("Trail")
-		trail.Attachment0 = a0
-		trail.Attachment1 = a1
-		trail.Color = ColorSequence.new(m.color, m.color2)
-		trail.LightEmission = 1
-		trail.Lifetime = 0.35
-		trail.Transparency = NumberSequence.new(0.1, 1)
-		trail.FaceCamera = true
-		trail.Parent = handle
 		-- にぎる所から立ちのぼる光
 		local aura = Instance.new("ParticleEmitter")
 		aura.Color = ColorSequence.new(m.color, m.color2)

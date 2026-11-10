@@ -1078,4 +1078,156 @@ function Config.findWeapon(id: any)
 	return if typeof(id) == "string" then weaponById[id] else nil
 end
 
+--------------------------------------------------------------------------------
+-- 防具：5つの場所 × 2種類 × 5レア度 ＝ 50個
+--------------------------------------------------------------------------------
+
+-- 身につける場所（場所ごとに 1つずつ）
+Config.ArmorSlots = {
+	{ id = "head", name = "頭", icon = "⛑️" },
+	{ id = "body", name = "体", icon = "🛡️" },
+	{ id = "arms", name = "うで", icon = "🧤" },
+	{ id = "legs", name = "足", icon = "🥾" },
+	{ id = "back", name = "せなか", icon = "🦋" },
+}
+
+-- 能力の種類と、説明の書き方
+-- hp：最大体力 / defense：受けるダメージを へらす（%）/ attack：武器のこうげき力（%）/ walk：走る速さ
+-- jump：ジャンプ力 / coin：たまごのコイン（%）/ regen：毎秒の回復 / train：トレーニング（%）
+Config.ArmorStats = {
+	hp = { icon = "❤️", text = "体力 +%d" },
+	defense = { icon = "🛡️", text = "ダメージ -%d%%" },
+	attack = { icon = "⚔️", text = "こうげき +%d%%" },
+	walk = { icon = "👟", text = "はやさ +%d" },
+	jump = { icon = "🦘", text = "ジャンプ +%d" },
+	coin = { icon = "🪙", text = "コイン +%d%%" },
+	regen = { icon = "💚", text = "回復 毎秒+%d" },
+	train = { icon = "⚡", text = "トレーニング +%d%%" },
+}
+Config.ArmorStatOrder = { "hp", "defense", "attack", "walk", "jump", "coin", "regen", "train" }
+
+-- 防具の種類（場所ごとに 2つ）。values：レア度 1〜5 のときの能力の数字
+Config.ArmorKinds = {
+	{ kind = "helm", slot = "head", noun = "かぶと", stat = "defense", values = { 6, 10, 14, 18, 22 }, price = 1 },
+	{
+		kind = "hat",
+		slot = "head",
+		noun = "とんがりぼうし",
+		stat = "train",
+		values = { 20, 40, 60, 80, 100 },
+		price = 1.1,
+	},
+	{
+		kind = "plate",
+		slot = "body",
+		noun = "よろい",
+		stat = "hp",
+		values = { 50, 120, 260, 500, 900 },
+		price = 1.4,
+	},
+	{ kind = "robe", slot = "body", noun = "ローブ", stat = "regen", values = { 2, 4, 7, 11, 16 }, price = 1.3 },
+	{
+		kind = "gauntlet",
+		slot = "arms",
+		noun = "こて",
+		stat = "attack",
+		values = { 10, 20, 35, 55, 80 },
+		price = 1.2,
+	},
+	{
+		kind = "bracelet",
+		slot = "arms",
+		noun = "うでわ",
+		stat = "coin",
+		values = { 10, 20, 30, 40, 50 },
+		price = 1.1,
+	},
+	{ kind = "boots", slot = "legs", noun = "ブーツ", stat = "walk", values = { 2, 4, 6, 8, 10 }, price = 1 },
+	{
+		kind = "greaves",
+		slot = "legs",
+		noun = "すねあて",
+		stat = "defense",
+		values = { 6, 10, 14, 18, 22 },
+		price = 1,
+	},
+	{ kind = "cape", slot = "back", noun = "マント", stat = "hp", values = { 30, 80, 170, 330, 600 }, price = 1.2 },
+	{ kind = "wings", slot = "back", noun = "つばさ", stat = "jump", values = { 6, 12, 18, 24, 30 }, price = 1.5 },
+}
+
+-- レア度ごとの材料（名前の前につく）、ねだん、どの防具にも つく体力
+Config.ArmorTiers = {
+	{ prefix = "かわの", price = 200, hp = 10 },
+	{ prefix = "てつの", price = 2000, hp = 25 },
+	{ prefix = "ミスリルの", price = 15000, hp = 50 },
+	{ prefix = "黄金竜の", price = 100000, hp = 100 },
+	{ prefix = "星くずの", price = 500000, hp = 200 },
+}
+
+-- 受けるダメージを へらせる上限（%）
+Config.ArmorDefenseCap = 60
+
+-- 防具の一覧（A01〜A50）。ためし用の無料中（FreeWeaponsForTest）は、防具も無料
+Config.Armors = {}
+do
+	local n = 0
+	for rarity, tier in Config.ArmorTiers do
+		for _, k in Config.ArmorKinds do
+			n += 1
+			local bonus = { hp = tier.hp }
+			bonus[k.stat] = (bonus[k.stat] or 0) + k.values[rarity]
+			table.insert(Config.Armors, {
+				id = string.format("A%02d", n),
+				name = tier.prefix .. k.noun,
+				kind = k.kind,
+				slot = k.slot,
+				rarity = rarity,
+				bonus = bonus,
+				price = if Config.FreeWeaponsForTest then 0 else math.floor(tier.price * k.price / 10 + 0.5) * 10,
+			})
+		end
+	end
+end
+
+local armorById = {}
+for _, a in Config.Armors do
+	armorById[a.id] = a
+end
+function Config.findArmor(id: any)
+	return if typeof(id) == "string" then armorById[id] else nil
+end
+
+-- 能力を文字にする（例：「❤️体力 +60 ／ 🛡️ダメージ -6%」）
+function Config.armorBonusText(bonus: { [string]: number }): string
+	local parts = {}
+	for _, key in Config.ArmorStatOrder do
+		local value = bonus[key] or 0
+		if value > 0 then
+			local info = Config.ArmorStats[key]
+			table.insert(parts, info.icon .. string.format(info.text, value))
+		end
+	end
+	return table.concat(parts, " ／ ")
+end
+
+-- 身につけている防具（場所 → 防具の id）の能力を、全部たす
+function Config.armorBonus(equipped: any): { [string]: number }
+	local total = {}
+	for _, key in Config.ArmorStatOrder do
+		total[key] = 0
+	end
+	if typeof(equipped) == "table" then
+		for _, slot in Config.ArmorSlots do
+			local armor = Config.findArmor(equipped[slot.id])
+			if armor and armor.slot == slot.id then
+				for key, value in armor.bonus do
+					total[key] += value
+				end
+			end
+		end
+	end
+	total.defense = math.min(total.defense, Config.ArmorDefenseCap)
+	return total
+end
+
 return Config
