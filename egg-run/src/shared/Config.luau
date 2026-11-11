@@ -1230,4 +1230,133 @@ function Config.armorBonus(equipped: any): { [string]: number }
 	return total
 end
 
+--------------------------------------------------------------------------------
+-- 何度でも遊べるしくみ：転生・れんぞく配達・タイムアタック・あたりゾーン・天気・宝箱
+--------------------------------------------------------------------------------
+
+-- 数字 n から、0〜1 の ばらばらな数を作る（サーバーでも自分の画面でも 同じ答えになる）
+local function mul32(a: number, b: number): number
+	local hi, lo = bit32.rshift(a, 16), bit32.band(a, 0xFFFF)
+	return bit32.band(bit32.lshift(bit32.band(hi * b, 0xFFFF), 16) + lo * b, 0xFFFFFFFF)
+end
+local function hash01(n: number): number
+	local x = bit32.band(math.floor(n), 0xFFFFFFFF)
+	x = mul32(bit32.bxor(x, bit32.rshift(x, 16)), 0x45D9)
+	x = mul32(bit32.bxor(x, bit32.rshift(x, 13)), 0x9E37)
+	x = bit32.bxor(x, bit32.rshift(x, 16))
+	return x / 4294967296
+end
+
+-- 転生：スピードが need にとどいたら、スピードとコインを 0 にもどして、ずっと続く力をもらう
+-- （ドラゴン・武器・防具・ショップの商品・図鑑・実績は のこる）
+-- speed = 1回目に必要なスピード、growth = 1回ごとに必要なスピードが何倍になるか
+-- train / coin = 1回ごとに ふえる倍率（トレーニング +50%、たまごのコイン +25%）
+Config.Rebirth = { speed = 3000, growth = 1.4, train = 0.5, coin = 0.25 }
+function Config.rebirthNeed(count: number): number
+	return math.floor(Config.Rebirth.speed * Config.Rebirth.growth ^ count / 100 + 0.5) * 100
+end
+function Config.rebirthTrainMult(count: number): number
+	return 1 + Config.Rebirth.train * count
+end
+function Config.rebirthCoinMult(count: number): number
+	return 1 + Config.Rebirth.coin * count
+end
+-- 転生の回数でつく よび名
+Config.RebirthTitles = {
+	{ count = 0, name = "かけだし" },
+	{ count = 1, name = "ルーキー" },
+	{ count = 3, name = "ベテラン" },
+	{ count = 5, name = "たつじん" },
+	{ count = 10, name = "マスター" },
+	{ count = 20, name = "でんせつ" },
+	{ count = 50, name = "神話" },
+}
+function Config.rebirthTitle(count: number): string
+	local name = Config.RebirthTitles[1].name
+	for _, t in Config.RebirthTitles do
+		if count >= t.count then
+			name = t.name
+		end
+	end
+	return name
+end
+
+-- れんぞく配達：やられずに続けて届けるほど、コインがふえる（1回ごとに +10%、+100% まで）
+Config.Combo = { per = 0.1, max = 10 }
+function Config.comboMult(streak: number): number
+	return 1 + Config.Combo.per * math.clamp(streak - 1, 0, Config.Combo.max)
+end
+
+-- タイムアタック：たまごを拾ってから届けるまでの時間。自分の記録をぬりかえると、コインが bonus 倍 おまけ
+Config.TimeAttack = { bonus = 1 }
+
+-- あたりゾーン：every 秒ごとに入れかわる（全部のサーバーで同じ）。そのゾーンのたまごは コイン mult 倍
+Config.Lucky = { every = 600, mult = 3 }
+function Config.luckyZone(now: number): (number, number)
+	local window = math.floor(now / Config.Lucky.every)
+	local count = 0
+	for _, zone in Config.Zones do
+		if not zone.secret then
+			count += 1
+		end
+	end
+	return 1 + math.floor(hash01(window * 7 + 3) * count), (window + 1) * Config.Lucky.every
+end
+
+-- 天気：every 秒ごとに変わる（全部のサーバーで同じ）。weight = 出やすさ
+-- train = トレーニング倍率、walk = 走る速さに足す、coin = たまごのコイン倍率、bounty = 敵のコイン倍率、xp = 経験値の倍率
+Config.Weather = { every = 300 }
+Config.Weathers = {
+	{ id = "sunny", name = "はれ", icon = "☀️", weight = 30, desc = "いつもどおり" },
+	{ id = "rain", name = "あめ", icon = "🌧️", weight = 20, train = 1.5, desc = "トレーニング 1.5倍" },
+	{ id = "wind", name = "おいかぜ", icon = "🍃", weight = 16, walk = 8, desc = "走る速さ +8" },
+	{ id = "fog", name = "きり", icon = "🌫️", weight = 14, bounty = 2, desc = "敵のコイン 2倍" },
+	{
+		id = "storm",
+		name = "かみなり",
+		icon = "⛈️",
+		weight = 12,
+		xp = 2,
+		desc = "ドラゴンの経験値 2倍",
+	},
+	{ id = "rainbow", name = "にじ", icon = "🌈", weight = 8, coin = 1.5, desc = "たまごのコイン 1.5倍" },
+}
+function Config.weatherAt(now: number): (any, number)
+	local window = math.floor(now / Config.Weather.every)
+	local total = 0
+	for _, w in Config.Weathers do
+		total += w.weight
+	end
+	local pick = hash01(window * 13 + 5) * total
+	local found = Config.Weathers[1]
+	for _, w in Config.Weathers do
+		pick -= w.weight
+		if pick <= 0 then
+			found = w
+			break
+		end
+	end
+	return found, (window + 1) * Config.Weather.every
+end
+
+-- 1日の長さ（秒）。全部のサーバーで同じ時刻になる。朝 → 昼 → 夕方 → 夜
+Config.DayLength = 1200
+function Config.clockAt(now: number): number
+	-- 始まりを朝の 8時にする
+	return (8 + (now % Config.DayLength) / Config.DayLength * 24) % 24
+end
+
+-- 宝箱：every 秒ごとに 道のどこかに出る（max こ まで、life 秒で消える）
+-- コインは その場所のゾーンのごほうびの coinMin〜coinMax 倍。ときどき ふしぎなたまご、まれに 大当たり
+Config.Chest = {
+	every = 45,
+	max = 4,
+	life = 240,
+	coinMin = 2,
+	coinMax = 6,
+	eggChance = 0.12,
+	jackpotChance = 0.04,
+	jackpotMult = 25,
+}
+
 return Config

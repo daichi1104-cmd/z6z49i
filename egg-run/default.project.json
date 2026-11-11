@@ -90,6 +90,11 @@
       "$properties": {
         "Gravity": 196.2
       }
+    },
+    "MaterialService": {
+      "$properties": {
+        "Use2022Materials": true
+      }
     }
   }
 }

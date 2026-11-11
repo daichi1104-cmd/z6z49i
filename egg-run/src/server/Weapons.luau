@@ -38,10 +38,10 @@ local LOOKS: { Look } = {
 		trimMat = Enum.Material.Wood,
 	},
 	{ -- ★2 てつ
-		blade = Color3.fromRGB(175, 180, 190),
+		blade = Color3.fromRGB(196, 200, 208),
 		bladeMat = Enum.Material.Metal,
-		grip = Color3.fromRGB(90, 55, 35),
-		trim = Color3.fromRGB(120, 120, 130),
+		grip = Color3.fromRGB(74, 46, 30),
+		trim = Color3.fromRGB(104, 100, 98),
 		trimMat = Enum.Material.Metal,
 	},
 	{ -- ★3 ミスリル
@@ -107,6 +107,30 @@ type Builder = {
 	tips: { Vector3 }, -- 刃の先など（光の粒を出す場所）
 }
 
+-- 部品の仕上げ：当たらない・重さなし。みがいた金属は まわりを うつし、影も落とす
+local function finish(p: BasePart)
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.CastShadow = p.Material ~= Enum.Material.Neon
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	if p.Material == Enum.Material.Metal then
+		p.Reflectance = 0.3
+	elseif p.Material == Enum.Material.Glass then
+		p.Reflectance = 0.18
+	end
+end
+
+-- 色を暗く（k = 0〜1）
+local function darker(c: Color3, k: number): Color3
+	return c:Lerp(Color3.new(0, 0, 0), k)
+end
+local function lighter(c: Color3, k: number): Color3
+	return c:Lerp(Color3.new(1, 1, 1), k)
+end
+
 -- 部品を、にぎる所から見た位置 cf に置く（あとで Handle に溶接する）
 local function piece(
 	b: Builder,
@@ -124,15 +148,48 @@ local function piece(
 	if shape then
 		p.Shape = shape
 	end
-	p.CanCollide = false
-	p.CanQuery = false
-	p.CanTouch = false
-	p.Massless = true
-	p.CastShadow = false
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
+	finish(p)
 	p.Parent = b.tool
 	return p
+end
+
+-- 3つの点を結ぶ うすい三角形（刃の先・斧の刃）。WedgePart 2枚で作る
+local function tri(
+	b: Builder,
+	p1: Vector3,
+	p2: Vector3,
+	p3: Vector3,
+	thickness: number,
+	color: Color3,
+	material: Enum.Material
+)
+	local a, bb, c = p1, p2, p3
+	local ab, ac, bc = bb - a, c - a, c - bb
+	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+	if abd > acd and abd > bcd then
+		c, a = a, c
+	elseif acd > bcd and acd > abd then
+		a, bb = bb, a
+	end
+	ab, ac, bc = bb - a, c - a, c - bb
+	local cross = ac:Cross(ab)
+	if cross.Magnitude < 1e-4 then
+		return
+	end
+	local right = cross.Unit
+	local up = bc:Cross(right).Unit
+	local back = bc.Unit
+	local height = math.abs(ab:Dot(up))
+	for _, half in { { bb, 1 }, { c, -1 } } do
+		local other, sign = half[1] :: Vector3, half[2] :: number
+		local w = Instance.new("WedgePart")
+		w.Size = v(thickness, height, math.abs((other - a):Dot(back)))
+		w.CFrame = CFrame.fromMatrix((a + other) / 2, right * sign, up, back * sign)
+		w.Color = color
+		w.Material = material
+		finish(w)
+		w.Parent = b.tool
+	end
 end
 
 -- Z の方向にのびる円柱（Roblox の円柱は X 方向なので回す）
@@ -160,33 +217,107 @@ local function ball(b: Builder, d: number, pos: Vector3, color: Color3, material
 	return piece(b, v(d, d, d), CFrame.new(pos), color, material, Enum.PartType.Ball)
 end
 
--- 刃：幅 w（X）、厚さ t（Y）、長さ len（Z）。z0 から先へ。先はとがらせる。★3 からふちが光る
+-- 刃：幅 w（X）、厚さ t（Y）、長さ len（Z）。z0 から先へ。★3 からふちが光る
+-- 本物の剣のように、まん中が厚く（しのぎ）、両がわへ うすくなって、みぞ（樋）が 1本 通る。先は三角にとがる
 local function blade(b: Builder, w: number, t: number, z0: number, len: number, cf: CFrame?)
 	local base = cf or CFrame.new()
 	local look = b.look
-	local body = len * 0.82
-	piece(b, v(w, t, body), base * CFrame.new(0, 0, z0 + body / 2), look.blade, look.bladeMat)
-	-- 先：45度回した四角を細くして、とがった形に
-	local tipLen = len - body
-	piece(
+	local metal = look.bladeMat ~= Enum.Material.Wood
+	local body = len * 0.8
+	local edgeColor = if metal then lighter(look.blade, 0.35) else lighter(look.blade, 0.12)
+	-- まん中の厚いところ
+	piece(b, v(w * 0.5, t, body), base * CFrame.new(0, 0, z0 + body / 2), look.blade, look.bladeMat)
+	-- 両がわの うすい刃（みがかれて 明るい）
+	for _, s in { -1, 1 } do
+		piece(
+			b,
+			v(w * 0.27, t * 0.5, body),
+			base * CFrame.new(s * w * 0.375, 0, z0 + body / 2),
+			edgeColor,
+			look.bladeMat
+		)
+	end
+	-- みぞ（樋）：表と裏に 1本ずつ
+	if w >= 0.3 then
+		for _, s in { -1, 1 } do
+			piece(
+				b,
+				v(w * 0.14, 0.02, body * 0.72),
+				base * CFrame.new(0, s * t * 0.5, z0 + body * 0.4),
+				darker(look.blade, 0.3),
+				look.bladeMat
+			)
+		end
+	end
+	-- 先：まん中の厚い三角と、ふちの うすい三角
+	local tipZ = z0 + len
+	local function at(x: number, z: number): Vector3
+		return (base * CFrame.new(x, 0, z)).Position
+	end
+	tri(
 		b,
-		v(w * 0.72, t * 0.95, w * 0.72),
-		base * CFrame.new(0, 0, z0 + body) * CFrame.Angles(0, math.rad(45), 0),
+		at(-w * 0.25, z0 + body),
+		at(w * 0.25, z0 + body),
+		at(0, tipZ - (len - body) * 0.25),
+		t,
 		look.blade,
 		look.bladeMat
 	)
+	tri(b, at(-w / 2, z0 + body), at(w / 2, z0 + body), at(0, tipZ), t * 0.5, edgeColor, look.bladeMat)
 	if look.glow then
 		for _, s in { -1, 1 } do
 			piece(
 				b,
-				v(0.06, t * 1.1, body + tipLen * 0.3),
-				base * CFrame.new(s * w / 2, 0, z0 + (body + tipLen * 0.3) / 2),
+				v(0.05, t * 0.6, body),
+				base * CFrame.new(s * w / 2, 0, z0 + body / 2),
 				look.glow,
 				Enum.Material.Neon
 			)
 		end
 	end
-	table.insert(b.tips, (base * CFrame.new(0, 0, z0 + len)).Position)
+	table.insert(b.tips, at(0, tipZ))
+end
+
+-- にぎりの まき革：細い輪を ならべる（z0〜z1）
+local function wrap(b: Builder, d: number, z0: number, z1: number)
+	local n = math.max(2, math.floor((z1 - z0) / 0.16))
+	for i = 0, n - 1 do
+		local z = z0 + (i + 0.5) * (z1 - z0) / n
+		piece(
+			b,
+			v(0.07, d, d),
+			CFrame.new(0, 0, z)
+				* CFrame.Angles(0, math.pi / 2, 0)
+				* CFrame.Angles(math.rad(if i % 2 == 0 then 9 else -9), 0, 0),
+			darker(b.look.grip, 0.28),
+			Enum.Material.Leather,
+			Enum.PartType.Cylinder
+		)
+	end
+end
+
+-- 木の柄：木目の棒に、金具の輪（両はし）と まき革（手もと）
+local function shaft(b: Builder, d: number, z0: number, z1: number)
+	local wood = b.look.trim:Lerp(b.look.grip, 0.6)
+	local p = piece(
+		b,
+		v(z1 - z0, d, d),
+		CFrame.new(0, 0, (z0 + z1) / 2) * CFrame.Angles(0, math.pi / 2, 0),
+		wood,
+		Enum.Material.Wood,
+		Enum.PartType.Cylinder
+	)
+	for _, z in { z0 + 0.12, z1 - 0.12 } do
+		piece(
+			b,
+			v(0.14, d + 0.07, d + 0.07),
+			CFrame.new(0, 0, z) * CFrame.Angles(0, math.pi / 2, 0),
+			b.look.trim,
+			b.look.trimMat,
+			Enum.PartType.Cylinder
+		)
+	end
+	return p
 end
 
 -- にぎり（Handle）と、うしろの玉
@@ -196,15 +327,31 @@ local function grip(b: Builder, len: number, z0: number?)
 	b.handle.Shape = Enum.PartType.Cylinder
 	b.handle.CFrame = CFrame.new(0, 0, z + len / 2) * CFrame.Angles(0, math.pi / 2, 0)
 	b.handle.Color = b.look.grip
-	b.handle.Material = Enum.Material.Fabric
-	ball(b, 0.42, v(0, 0, z - 0.1), b.look.trim, b.look.trimMat)
+	b.handle.Material = Enum.Material.Leather
+	wrap(b, 0.36, z + 0.08, z + len - 0.08)
+	-- つか頭：輪と玉
+	piece(
+		b,
+		v(0.1, 0.4, 0.4),
+		CFrame.new(0, 0, z) * CFrame.Angles(0, math.pi / 2, 0),
+		b.look.trim,
+		b.look.trimMat,
+		Enum.PartType.Cylinder
+	)
+	ball(b, 0.4, v(0, 0, z - 0.16), b.look.trim, b.look.trimMat)
 end
 
 local SHAPES: { [string]: (Builder) -> () } = {}
 
 SHAPES.sword = function(b)
 	grip(b, 1.2)
-	piece(b, v(1.5, 0.25, 0.28), CFrame.new(0, 0, 0.82), b.look.trim, b.look.trimMat)
+	-- つば：まん中が太く、両はしに玉。刃の根もとを はさむ金具
+	piece(b, v(1.5, 0.22, 0.24), CFrame.new(0, 0, 0.82), b.look.trim, b.look.trimMat)
+	piece(b, v(0.6, 0.3, 0.34), CFrame.new(0, 0, 0.82), b.look.trim, b.look.trimMat)
+	for _, s in { -1, 1 } do
+		ball(b, 0.3, v(s * 0.78, 0, 0.82), b.look.trim, b.look.trimMat)
+	end
+	piece(b, v(0.3, 0.16, 0.3), CFrame.new(0, 0, 1.06), darker(b.look.trim, 0.15), b.look.trimMat)
 	blade(b, 0.42, 0.12, 0.96, 3.4)
 end
 
@@ -260,8 +407,8 @@ SHAPES.spear = function(b)
 	b.handle.Shape = Enum.PartType.Cylinder
 	b.handle.CFrame = CFrame.Angles(0, math.pi / 2, 0)
 	b.handle.Color = b.look.grip
-	b.handle.Material = Enum.Material.Fabric
-	rodZ(b, 0.24, -2.4, 5.2, b.look.trim:Lerp(b.look.grip, 0.6), Enum.Material.Wood)
+	b.handle.Material = Enum.Material.Leather
+	shaft(b, 0.24, -2.4, 5.2)
 	ball(b, 0.32, v(0, 0, -2.45), b.look.trim, b.look.trimMat)
 	rodZ(b, 0.36, 5.1, 5.5, b.look.trim, b.look.trimMat)
 	blade(b, 0.48, 0.12, 5.5, 1.7)
@@ -279,7 +426,7 @@ end
 
 SHAPES.scythe = function(b)
 	grip(b, 0.9, -0.45)
-	rodZ(b, 0.24, -1.6, 4.4, b.look.trim:Lerp(b.look.grip, 0.6), Enum.Material.Wood)
+	shaft(b, 0.24, -1.6, 4.4)
 	rodZ(b, 0.34, 4.2, 4.6, b.look.trim, b.look.trimMat)
 	-- 上の刃：手に持ったとき縦（-X）へ出て、手もとの方へ曲がる
 	local cf = CFrame.new(-0.2, 0, 4.35) * CFrame.Angles(0, math.rad(-90), 0)
@@ -298,11 +445,29 @@ end
 
 SHAPES.axe = function(b)
 	grip(b, 1, -0.5)
-	rodZ(b, 0.26, -0.6, 3.1, b.look.trim:Lerp(b.look.grip, 0.6), Enum.Material.Wood)
+	shaft(b, 0.26, -0.6, 3.1)
 	-- 頭：手に持ったとき縦（-X）に、大きな刃
 	piece(b, v(0.5, 0.3, 0.7), CFrame.new(0, 0, 2.8), b.look.trim, b.look.trimMat)
 	piece(b, v(1.5, 0.16, 1.1), CFrame.new(-0.85, 0, 2.8), b.look.blade, b.look.bladeMat)
 	piece(b, v(0.5, 0.16, 1.5), CFrame.new(-1.55, 0, 2.8), b.look.blade, b.look.bladeMat)
+	-- とがれた刃先（うすく 明るい）と、上下へ はり出す角
+	piece(b, v(0.16, 0.07, 1.5), CFrame.new(-1.86, 0, 2.8), lighter(b.look.blade, 0.35), b.look.bladeMat)
+	for _, s in { -1, 1 } do
+		tri(
+			b,
+			v(-1.3, 0, 2.8 + s * 0.75),
+			v(-1.94, 0, 2.8 + s * 0.75),
+			v(-1.94, 0, 2.8 + s * 1.15),
+			0.1,
+			b.look.blade,
+			b.look.bladeMat
+		)
+	end
+	-- 柄にとめる くさびと びょう
+	for _, z in { 2.6, 3.0 } do
+		ball(b, 0.14, v(0, 0.17, z), darker(b.look.trim, 0.2), b.look.trimMat)
+		ball(b, 0.14, v(0, -0.17, z), darker(b.look.trim, 0.2), b.look.trimMat)
+	end
 	if b.look.glow then
 		piece(b, v(0.1, 0.17, 1.55), CFrame.new(-1.82, 0, 2.8), b.look.glow, Enum.Material.Neon)
 	end
@@ -311,7 +476,7 @@ end
 
 SHAPES.hammer = function(b)
 	grip(b, 1, -0.5)
-	rodZ(b, 0.28, -0.6, 3, b.look.trim:Lerp(b.look.grip, 0.6), Enum.Material.Wood)
+	shaft(b, 0.28, -0.6, 3)
 	-- 頭：横向きの太い円柱と、両はしの金具
 	piece(
 		b,
@@ -340,7 +505,7 @@ SHAPES.bow = function(b)
 	b.handle.Shape = Enum.PartType.Cylinder
 	b.handle.CFrame = CFrame.Angles(0, 0, math.pi / 2)
 	b.handle.Color = b.look.grip
-	b.handle.Material = Enum.Material.Fabric
+	b.handle.Material = Enum.Material.Leather
 	local tipsY = {}
 	for _, s in { -1, 1 } do
 		local cf = CFrame.new(0, s * 0.4, 0) * CFrame.Angles(s * math.rad(-90), 0, 0)
@@ -373,7 +538,7 @@ end
 
 SHAPES.staff = function(b)
 	grip(b, 0.9, -0.45)
-	rodZ(b, 0.26, -1.8, 3.8, b.look.trim:Lerp(b.look.grip, 0.6), Enum.Material.Wood)
+	shaft(b, 0.26, -1.8, 3.8)
 	-- 先：つめで玉をつかむ
 	for i = 1, 4 do
 		local a = i / 4 * math.pi * 2
@@ -414,7 +579,6 @@ function Weapons.build(weapon): Tool
 	handle.CanQuery = false
 	handle.CanTouch = false
 	handle.Massless = true
-	handle.CastShadow = false
 	handle.Parent = tool
 
 	local b: Builder = { tool = tool, handle = handle, look = lookOf(weapon), rarity = weapon.rarity, tips = {} }

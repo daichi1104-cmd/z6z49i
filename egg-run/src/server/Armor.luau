@@ -122,6 +122,12 @@ local function put(
 	p.CanQuery = false
 	p.CanTouch = false
 	p.Massless = true
+	-- みがいた金属は まわりを うつす
+	if material == Enum.Material.Metal then
+		p.Reflectance = 0.26
+	elseif material == Enum.Material.Glass then
+		p.Reflectance = 0.15
+	end
 	local offset = r.cf * cf
 	p.CFrame = r.part.CFrame * offset
 	local weld = Instance.new("Weld")
@@ -148,6 +154,29 @@ local UP = CFrame.Angles(0, 0, math.pi / 2)
 local function disc(b: Builder, r: Region, d: number, h: number, cf: CFrame, color: Color3, mat: Enum.Material): Part
 	return put(b, r, Vector3.new(h, d, d), cf * UP, color, mat, Enum.PartType.Cylinder)
 end
+-- 丸い ふくらみ（かぶとの鉢・かた当て）：玉を たて・よこ・奥行き 別々の大きさにする
+local function dome(b: Builder, r: Region, size: Vector3, cf: CFrame, color: Color3, mat: Enum.Material): Part
+	local p = put(b, r, size, cf, color, mat)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Parent = p
+	return p
+end
+-- びょう（小さな金属の玉）
+local function rivet(b: Builder, r: Region, cf: CFrame)
+	put(
+		b,
+		r,
+		Vector3.new(0.09, 0.09, 0.09),
+		cf,
+		b.look.trim:Lerp(Color3.new(0, 0, 0), 0.2),
+		Enum.Material.Metal,
+		Enum.PartType.Ball
+	)
+end
+local function shade(c: Color3, k: number): Color3
+	return c:Lerp(Color3.new(0, 0, 0), k)
+end
 -- ★5 はキラキラする
 local function sparkle(b: Builder, p: Part)
 	if b.rarity >= 5 then
@@ -168,6 +197,8 @@ local function sides(): { { name: string, sign: number } }
 end
 
 local builders: { [string]: (Builder) -> () } = {}
+-- 布でできている防具
+local CLOTH = { hat = true, robe = true, cape = true }
 
 -- かぶと：顔は見えるように、上・後ろ・横をおおう
 function builders.helm(b: Builder)
@@ -176,13 +207,24 @@ function builders.helm(b: Builder)
 		return
 	end
 	local s = r.size.Y
-	local top = main(b, r, v(1.14 * s, 0.32 * s, 1.14 * s), at(0, 0.43 * s, 0))
+	-- 鉢（丸い てっぺん）と、そのまん中を通る すじ
+	local top = dome(b, r, v(1.2 * s, 0.82 * s, 1.2 * s), at(0, 0.3 * s, 0), b.look.main, b.look.mat)
+	trim(b, r, v(0.08 * s, 0.4 * s, 1.0 * s), at(0, 0.52 * s, 0))
+	-- ほおあて（顔の横を まもる）
+	for _, x in { -1, 1 } do
+		main(b, r, v(0.1 * s, 0.4 * s, 0.34 * s), at(x * 0.54 * s, -0.22 * s, -0.3 * s))
+	end
 	main(b, r, v(1.14 * s, 0.78 * s, 0.14 * s), at(0, -0.02 * s, 0.53 * s))
 	for _, x in { -1, 1 } do
 		main(b, r, v(0.14 * s, 0.62 * s, 0.72 * s), at(x * 0.53 * s, -0.06 * s, 0.2 * s))
 	end
 	trim(b, r, v(1.2 * s, 0.1 * s, 1.2 * s), at(0, 0.28 * s, 0))
 	if b.rarity >= 2 then
+		-- ふちの びょう
+		for i = 0, 5 do
+			local a = math.rad(i * 60 + 30)
+			rivet(b, r, at(math.sin(a) * 0.61 * s, 0.28 * s, math.cos(a) * 0.61 * s))
+		end
 		-- 鼻あて
 		trim(b, r, v(0.1 * s, 0.42 * s, 0.08 * s), at(0, 0.08 * s, -0.57 * s))
 	end
@@ -247,6 +289,34 @@ function builders.plate(b: Builder)
 	-- 胸のまん中の すじと、えり
 	trim(b, c, v(s.X * 0.14, s.Y * 0.9, 0.06), at(0, 0, -s.Z * 0.66))
 	trim(b, c, v(s.X * 0.8, s.Y * 0.12, s.Z * 1.34), at(0, s.Y * 0.48, 0))
+	-- 胸の ふくらみ（左右）と、おなかの かさね板
+	for _, x in { -1, 1 } do
+		dome(
+			b,
+			c,
+			v(s.X * 0.52, s.Y * 0.5, s.Z * 0.5),
+			at(x * s.X * 0.27, s.Y * 0.2, -s.Z * 0.5),
+			b.look.main,
+			b.look.mat
+		)
+	end
+	for i = 0, 1 do
+		put(
+			b,
+			c,
+			v(s.X * (1.17 - i * 0.02), s.Y * 0.16, s.Z * 1.31),
+			at(0, -s.Y * (0.2 + i * 0.2), 0),
+			shade(b.look.main, 0.1 + i * 0.06),
+			b.look.mat
+		)
+	end
+	if b.rarity >= 2 then
+		for _, x in { -1, 1 } do
+			for i = 0, 1 do
+				rivet(b, c, at(x * s.X * 0.5, -s.Y * (0.2 + i * 0.2), -s.Z * 0.66))
+			end
+		end
+	end
 	if w then
 		trim(b, w, v(w.size.X * 1.14, w.size.Y * 0.6, w.size.Z * 1.24), at(0, w.size.Y * 0.1, 0))
 		if b.rarity >= 3 then
@@ -257,7 +327,23 @@ function builders.plate(b: Builder)
 		local sh = b.rig["shoulder" .. side.name]
 		if sh then
 			local z = sh.size
-			main(b, sh, v(z.X * 1.4, z.Y * 0.42, z.Z * 1.4), at(side.sign * z.X * 0.08, z.Y * 0.36, 0))
+			-- かた当て：丸い板を 2枚 かさねる
+			dome(
+				b,
+				sh,
+				v(z.X * 1.55, z.Y * 0.8, z.Z * 1.55),
+				at(side.sign * z.X * 0.1, z.Y * 0.3, 0),
+				b.look.main,
+				b.look.mat
+			)
+			dome(
+				b,
+				sh,
+				v(z.X * 1.42, z.Y * 0.6, z.Z * 1.46),
+				at(side.sign * z.X * 0.14, z.Y * 0.02, 0),
+				shade(b.look.main, 0.12),
+				b.look.mat
+			)
 			if b.rarity >= 2 then
 				trim(b, sh, v(z.X * 1.5, z.Y * 0.12, z.Z * 1.5), at(side.sign * z.X * 0.08, z.Y * 0.14, 0))
 			end
@@ -445,11 +531,38 @@ function builders.cape(b: Builder)
 	local length = k * (2.7 + 0.25 * b.rarity)
 	-- 上のふちを軸に、少し後ろへ ひらく
 	local hinge = at(0, s.Y * 0.45, s.Z * 0.5 + 0.1) * CFrame.Angles(math.rad(-9), 0, 0)
-	local cloth = main(b, c, v(s.X * 1.3, length, 0.1), hinge * at(0, -length / 2, 0))
+	-- 布は 4枚つなぎ。下へ行くほど 広がって、ふわりと後ろへ なびく
+	local cloth
+	local joint = hinge
+	local part = length / 4
+	for i = 1, 4 do
+		local wide = s.X * (1.18 + 0.09 * i)
+		local p = put(
+			b,
+			c,
+			v(wide, part + 0.04, 0.09),
+			joint * at(0, -part / 2, 0),
+			shade(b.look.main, 0.04 * (i - 1)),
+			b.look.mat
+		)
+		cloth = cloth or p
+		joint = joint * at(0, -part, 0) * CFrame.Angles(math.rad(-4 - i), 0, 0)
+	end
+	-- たての ひだ（かげ）
+	for _, x in { -0.3, 0, 0.3 } do
+		put(
+			b,
+			c,
+			v(0.05, length * 0.5, 0.05),
+			hinge * at(x * s.X, -length * 0.26, 0.07),
+			shade(b.look.main, 0.3),
+			b.look.mat
+		)
+	end
 	trim(b, c, v(s.X * 1.34, 0.16 * k, 0.24), hinge * at(0, -0.04, 0))
 	if b.rarity >= 2 then
 		-- すその ふち
-		trim(b, c, v(s.X * 1.34, 0.14 * k, 0.12), hinge * at(0, -length + 0.07 * k, 0))
+		trim(b, c, v(s.X * 1.56, 0.14 * k, 0.1), joint * at(0, 0.07 * k, 0))
 	end
 	if b.rarity >= 3 then
 		-- とめ金
@@ -459,7 +572,12 @@ function builders.cape(b: Builder)
 	end
 	if b.rarity >= 4 then
 		-- まん中の もよう
-		trim(b, c, v(s.X * 0.5, s.X * 0.5, 0.12), hinge * at(0, -length * 0.45, 0) * CFrame.Angles(0, 0, math.rad(45)))
+		trim(
+			b,
+			c,
+			v(s.X * 0.4, s.X * 0.4, 0.1),
+			hinge * at(0, -length * 0.22, 0.02) * CFrame.Angles(0, 0, math.rad(45))
+		)
 	end
 	sparkle(b, cloth)
 end
@@ -485,6 +603,21 @@ function builders.wings(b: Builder)
 			local feather = root * CFrame.Angles(0, 0, side.sign * angle) * at(side.sign * len / 2, 0, 0)
 			local piece = if i == 1 and b.rarity >= 2 then trim else main
 			local p = piece(b, c, v(len, 0.5 * k, 0.09), feather)
+			-- 羽の じく（まん中の線）と、下に かさなる 小さな羽
+			put(b, c, v(len * 0.92, 0.05 * k, 0.11), feather, shade(b.look.trim, 0.15), b.look.trimMat)
+			for j = 1, 2 do
+				local small = len * (0.82 - 0.2 * j)
+				put(
+					b,
+					c,
+					v(small, 0.34 * k, 0.07),
+					root
+						* CFrame.Angles(0, 0, side.sign * (angle - math.rad(11 * j)))
+						* at(side.sign * small / 2, 0, 0.05 * j),
+					shade(b.look.main, 0.1 * j),
+					b.look.mat
+				)
+			end
 			if i == 1 then
 				sparkle(b, p)
 			end
@@ -515,6 +648,11 @@ function Armor.apply(character: Model?, pieces: { any })
 		local build = builders[armor.kind]
 		local look = LOOKS[armor.rarity]
 		if build and look then
+			if CLOTH[armor.kind] then
+				-- 布の防具は、材料の色のまま 布の手ざわりにする（★1 は かわ）
+				look = table.clone(look)
+				look.mat = if armor.rarity == 1 then Enum.Material.Leather else Enum.Material.Fabric
+			end
 			build({ folder = folder, look = look, rarity = armor.rarity, rig = rig })
 		end
 	end

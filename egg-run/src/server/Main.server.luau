@@ -41,6 +41,7 @@ local useSkill = remote("RemoteFunction", "UseSkill") :: RemoteFunction
 local weaponAction = remote("RemoteFunction", "WeaponAction") :: RemoteFunction
 local armorAction = remote("RemoteFunction", "ArmorAction") :: RemoteFunction
 local screenFx = remote("RemoteEvent", "ScreenFx") :: RemoteEvent
+local rebirthAction = remote("RemoteFunction", "Rebirth") :: RemoteFunction
 Weapons.setScreenFx(screenFx)
 
 -- DataStore は Studio で API アクセスが無効だと失敗するので pcall で守る
@@ -70,6 +71,8 @@ type Data = {
 	login: any,
 	daily: any,
 	freeEggAt: number,
+	rebirths: number, -- 転生した回数
+	best: { [string]: number }, -- タイムアタックの記録（ゾーン → 秒）
 }
 
 local data: { [Player]: Data } = {}
@@ -80,6 +83,13 @@ local lastWarn: { [Player]: number } = {}
 type Buffs = { trainUntil: number, train: number, speedUntil: number, speed: number, shieldUntil: number }
 local buffs: { [Player]: Buffs } = {}
 local skillReadyAt: { [Player]: number } = {}
+local streak: { [Player]: number } = {} -- やられずに続けて届けた回数
+local carryStart: { [Player]: number } = {} -- たまごを拾った時刻（タイムアタック）
+
+-- いまの天気（全部のサーバーで同じ）
+local function weather()
+	return (Config.weatherAt(os.time()))
+end
 
 local function defaultData(): Data
 	local d = {
@@ -97,6 +107,8 @@ local function defaultData(): Data
 		weapon = Config.StarterWeapon,
 		armors = {},
 		armor = {},
+		rebirths = 0,
+		best = {},
 	}
 	Progress.ensure(d)
 	return d :: any
@@ -214,6 +226,14 @@ local function loadData(player: Player): Data
 			end
 		end
 	end
+	d.rebirths = math.max(0, math.floor(tonumber(value.rebirths) or 0))
+	if typeof(value.best) == "table" then
+		for zone, seconds in value.best do
+			if tonumber(seconds) then
+				d.best[tostring(zone)] = tonumber(seconds) :: number
+			end
+		end
+	end
 	d.stats = value.stats
 	d.achievements = value.achievements
 	d.login = value.login
@@ -249,6 +269,8 @@ local function saveData(player: Player)
 			login = d.login,
 			daily = d.daily,
 			freeEggAt = d.freeEggAt,
+			rebirths = d.rebirths,
+			best = d.best,
 		})
 	end)
 end
@@ -302,7 +324,10 @@ local function trainMult(player: Player, d: Data): number
 	if os.clock() < b.trainUntil then
 		m *= b.train
 	end
-	return m * (1 + Config.armorBonus(d.armor).train / 100)
+	return m
+		* (1 + Config.armorBonus(d.armor).train / 100)
+		* Config.rebirthTrainMult(d.rebirths)
+		* (weather().train or 1)
 end
 
 local function damageMult(player: Player, d: Data): number
@@ -325,7 +350,7 @@ local function coinMult(d: Data): number
 			m *= dragon.coinMult
 		end
 	end
-	return m * (1 + Config.armorBonus(d.armor).coin / 100)
+	return m * (1 + Config.armorBonus(d.armor).coin / 100) * Config.rebirthCoinMult(d.rebirths)
 end
 
 local function regenOf(d: Data): number
@@ -361,7 +386,7 @@ local function walkSpeed(player: Player, d: Data): number
 	if os.clock() < b.speedUntil then
 		bonus += b.speed
 	end
-	return Config.walkSpeedFor(d.speed) + bonus + Config.armorBonus(d.armor).walk
+	return Config.walkSpeedFor(d.speed) + bonus + Config.armorBonus(d.armor).walk + (weather().walk or 0)
 end
 
 local function syncStats(player: Player)
@@ -372,7 +397,11 @@ local function syncStats(player: Player)
 	end
 	(stats:FindFirstChild("スピード") :: IntValue).Value = math.floor(d.speed);
 	(stats:FindFirstChild("コイン") :: IntValue).Value = math.floor(d.coins);
-	(stats:FindFirstChild("たまご") :: IntValue).Value = d.eggs
+	(stats:FindFirstChild("たまご") :: IntValue).Value = d.eggs;
+	(stats:FindFirstChild("転生") :: IntValue).Value = d.rebirths
+	player:SetAttribute("Rebirths", d.rebirths)
+	player:SetAttribute("Streak", streak[player] or 0)
+	player:SetAttribute("Best", HttpService:JSONEncode(d.best))
 	player:SetAttribute("WalkSpeed", walkSpeed(player, d))
 	player:SetAttribute("TrainMult", trainMult(player, d))
 	player:SetAttribute("Dragon", d.team[1] or "")
@@ -444,6 +473,7 @@ local function addXp(player: Player, amount: number)
 	if not d or amount <= 0 then
 		return
 	end
+	amount *= weather().xp or 1
 	local leveled = false
 	for _, id in d.team do
 		local before = levelOf(d, id)
@@ -599,7 +629,9 @@ end
 
 local function dropEgg(player: Player)
 	carrying[player] = nil
+	carryStart[player] = nil
 	player:SetAttribute("CarryingZone", nil)
+	player:SetAttribute("CarryStart", nil)
 	local head = player.Character and player.Character:FindFirstChild("Head")
 	local egg = head and head:FindFirstChild("CarriedEgg")
 	if egg then
@@ -614,7 +646,9 @@ local function pickUpEgg(player: Player, zone: any)
 		return
 	end
 	carrying[player] = zone
+	carryStart[player] = os.clock()
 	player:SetAttribute("CarryingZone", zone)
+	player:SetAttribute("CarryStart", workspace:GetServerTimeNow())
 
 	local egg = Instance.new("Part")
 	egg.Name = "CarriedEgg"
@@ -659,10 +693,48 @@ local function deliverEgg(player: Player)
 	if not d or not info then
 		return
 	end
-	local reward = math.floor(info.reward * coinMult(d))
+	-- れんぞく配達・あたりゾーン・天気（にじ）で コインがふえる
+	streak[player] = (streak[player] or 0) + 1
+	local combo = Config.comboMult(streak[player])
+	local lucky = typeof(zone) == "number" and zone == Config.luckyZone(os.time())
+	local mult = coinMult(d) * combo * (if lucky then Config.Lucky.mult else 1) * (weather().coin or 1)
+	local reward = math.floor(info.reward * mult)
+	-- タイムアタック：自分の記録をぬりかえたら おまけ
+	local took = if carryStart[player] then os.clock() - carryStart[player] else nil
+	local record: string? = nil
+	if took and typeof(zone) == "number" then
+		local key = tostring(zone)
+		local before = d.best[key]
+		if not before then
+			d.best[key] = took
+			record = string.format("⏱️ %sの はじめての記録：%.1f秒", info.name, took)
+		elseif took < before then
+			d.best[key] = took
+			local bonus = math.floor(info.reward * Config.TimeAttack.bonus * Config.rebirthCoinMult(d.rebirths))
+			reward += bonus
+			record = string.format("⏱️ 新記録！ %.1f秒 → %.1f秒（+%d コイン）", before, took, bonus)
+		end
+	end
 	d.coins += reward
 	d.eggs += 1
 	dropEgg(player)
+	if lucky then
+		notify:FireClient(player, string.format("🎯 あたりゾーン！ コイン %d倍", Config.Lucky.mult), true)
+	end
+	if streak[player] >= 2 then
+		notify:FireClient(
+			player,
+			string.format(
+				"🔥 れんぞく %d回！ コイン +%d%%",
+				streak[player],
+				math.floor((combo - 1) * 100 + 0.5)
+			),
+			true
+		)
+	end
+	if record then
+		notify:FireClient(player, record, true)
+	end
 	Progress.bump(d, "delivered")
 	if typeof(zone) == "number" then
 		Progress.bumpZone(d, zone)
@@ -692,7 +764,7 @@ end
 Players.PlayerAdded:Connect(function(player)
 	local stats = Instance.new("Folder")
 	stats.Name = "leaderstats"
-	for _, name in { "スピード", "コイン", "たまご" } do
+	for _, name in { "スピード", "コイン", "たまご", "転生" } do
 		local v = Instance.new("IntValue")
 		v.Name = name
 		v.Parent = stats
@@ -734,6 +806,11 @@ Players.PlayerAdded:Connect(function(player)
 				notify:FireClient(player, "💥 やられて たまごを落としてしまった…")
 			end
 			dropEgg(player)
+			if (streak[player] or 0) >= 2 then
+				notify:FireClient(player, "💔 れんぞく配達が とぎれた…")
+			end
+			streak[player] = 0
+			player:SetAttribute("Streak", 0)
 			Tower.leave(player, false)
 		end)
 	end
@@ -756,6 +833,8 @@ Players.PlayerRemoving:Connect(function(player)
 	lastWarn[player] = nil
 	buffs[player] = nil
 	skillReadyAt[player] = nil
+	streak[player] = nil
+	carryStart[player] = nil
 	Weapons.forget(player)
 end)
 
@@ -901,6 +980,220 @@ task.spawn(function()
 end)
 
 --------------------------------------------------------------------------------
+-- 天気が変わったら知らせる（走る速さ・トレーニング倍率が変わるので、数字を直す）
+--------------------------------------------------------------------------------
+
+task.spawn(function()
+	local last = weather().id
+	while true do
+		task.wait(2)
+		local now = weather()
+		if now.id ~= last then
+			last = now.id
+			for _, player in Players:GetPlayers() do
+				if data[player] then
+					notify:FireClient(
+						player,
+						string.format("%s 天気が「%s」になった（%s）", now.icon, now.name, now.desc),
+						true
+					)
+					syncStats(player)
+					applyStats(player)
+				end
+			end
+		end
+	end
+end)
+
+--------------------------------------------------------------------------------
+-- 宝箱（道のどこかに ときどき出る。さわった人が もらえる）
+--------------------------------------------------------------------------------
+
+local chestFolder = Instance.new("Folder")
+chestFolder.Name = "Chests"
+chestFolder.Parent = workspace
+type Chest = { model: Model, position: Vector3, zoneIndex: number, bornAt: number }
+local chests: { Chest } = {}
+
+local function chestPart(model: Model, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material): Part
+	local p = Instance.new("Part")
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = model
+	return p
+end
+
+-- 木の箱に 鉄のおび、金のかぎ。ふたは 丸い
+local function buildChest(position: Vector3): Model
+	local model = Instance.new("Model")
+	model.Name = "Chest"
+	local base = CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0)
+	local wood = Color3.fromRGB(122, 78, 44)
+	local iron = Color3.fromRGB(70, 72, 80)
+	local gold = Color3.fromRGB(240, 190, 60)
+	local body =
+		chestPart(model, Vector3.new(4, 2.2, 2.6), base * CFrame.new(0, 1.1, 0), wood, Enum.Material.WoodPlanks)
+	local lid = chestPart(
+		model,
+		Vector3.new(4, 2.6, 2.6),
+		base * CFrame.new(0, 2.2, 0),
+		wood:Lerp(Color3.new(0, 0, 0), 0.12),
+		Enum.Material.WoodPlanks
+	)
+	lid.Shape = Enum.PartType.Cylinder
+	for _, x in { -1.5, 0, 1.5 } do
+		chestPart(model, Vector3.new(0.35, 2.3, 2.7), base * CFrame.new(x, 1.1, 0), iron, Enum.Material.Metal)
+		local band =
+			chestPart(model, Vector3.new(0.35, 2.72, 2.72), base * CFrame.new(x, 2.2, 0), iron, Enum.Material.Metal)
+		band.Shape = Enum.PartType.Cylinder
+	end
+	chestPart(model, Vector3.new(4.1, 0.25, 2.7), base * CFrame.new(0, 2.15, 0), iron, Enum.Material.Metal)
+	local lock =
+		chestPart(model, Vector3.new(0.7, 0.9, 0.3), base * CFrame.new(0, 1.9, -1.4), gold, Enum.Material.Metal)
+	lock.Reflectance = 0.35
+	local light = Instance.new("PointLight")
+	light.Color = gold
+	light.Range = 18
+	light.Brightness = 2
+	light.Parent = lock
+	local sparkles = Instance.new("Sparkles")
+	sparkles.SparkleColor = gold
+	sparkles.Parent = body
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(8, 0, 2, 0)
+	bb.StudsOffset = Vector3.new(0, 5.5, 0)
+	bb.LightInfluence = 0
+	bb.MaxDistance = 250
+	bb.Parent = body
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.TextColor3 = gold
+	label.TextStrokeTransparency = 0.1
+	label.Text = "🧰 宝箱"
+	label.Parent = bb
+	model.Parent = chestFolder
+	return model
+end
+
+-- ひみつのゾーン以外の道の どこかに出す
+local function spawnChest()
+	local options = {}
+	for i, zone in Config.Zones do
+		if not zone.secret then
+			table.insert(options, i)
+		end
+	end
+	local zoneIndex = options[math.random(1, #options)]
+	local from = if zoneIndex == 1 then 110 else Config.Zones[zoneIndex - 1].distance + 80
+	local to = Config.Zones[zoneIndex].distance - 30
+	local position = Vector3.new(math.random(-9, 9), 0.6, -math.random(from, to))
+	table.insert(
+		chests,
+		{ model = buildChest(position), position = position, zoneIndex = zoneIndex, bornAt = os.clock() }
+	)
+	for _, player in Players:GetPlayers() do
+		notify:FireClient(player, string.format("🧰 %sの道に 宝箱が出た！", Config.Zones[zoneIndex].name))
+	end
+end
+
+local function openChest(player: Player, chest: Chest)
+	local d = data[player]
+	chest.model:Destroy()
+	if not d then
+		return
+	end
+	local cfg = Config.Chest
+	local zone = Config.Zones[chest.zoneIndex]
+	local coins = zone.reward * (cfg.coinMin + math.random() * (cfg.coinMax - cfg.coinMin))
+	local roll = math.random()
+	if roll < cfg.jackpotChance then
+		coins = zone.reward * cfg.jackpotMult
+		notify:FireClient(
+			player,
+			string.format("💎 大当たりの宝箱！！ +%d コイン", math.floor(coins)),
+			true
+		)
+		screenFx:FireClient(player, Color3.fromRGB(255, 220, 90), 0.5)
+	else
+		notify:FireClient(player, string.format("🧰 宝箱を開けた！ +%d コイン", math.floor(coins)), true)
+	end
+	d.coins += math.floor(coins)
+	if math.random() < cfg.eggChance then
+		local id = mysteryHatch(player)
+		local dragon = Dragons.find(id)
+		notify:FireClient(
+			player,
+			string.format("🥚 宝箱から %s が生まれた！", if dragon then dragon.name else "ドラゴン"),
+			true
+		)
+	end
+	addXp(player, 3 * chest.zoneIndex)
+	checkProgress(player)
+	syncStats(player)
+	save(player)
+end
+
+task.spawn(function()
+	while true do
+		task.wait(Config.Chest.every)
+		for i = #chests, 1, -1 do
+			if os.clock() - chests[i].bornAt > Config.Chest.life then
+				chests[i].model:Destroy()
+				table.remove(chests, i)
+			end
+		end
+		if #Players:GetPlayers() > 0 and #chests < Config.Chest.max then
+			spawnChest()
+		end
+	end
+end)
+
+--------------------------------------------------------------------------------
+-- 転生：スピードとコインを 0 にもどして、ずっと続く力をもらう
+--------------------------------------------------------------------------------
+
+rebirthAction.OnServerInvoke = function(player: Player)
+	local d = data[player]
+	if not d then
+		return false, "エラー"
+	end
+	local need = Config.rebirthNeed(d.rebirths)
+	if d.speed < need then
+		return false, string.format("スピードが あと %d いるよ", math.ceil(need - d.speed))
+	end
+	if carrying[player] then
+		return false, "たまごを届けてから 転生しよう"
+	end
+	d.rebirths += 1
+	d.speed = 0
+	d.coins = 0
+	local id = mysteryHatch(player)
+	local dragon = Dragons.find(id)
+	checkProgress(player)
+	syncStats(player)
+	applyStats(player, true)
+	save(player)
+	return true,
+		string.format(
+			"🌟 転生 %d回目！ 「%s」になった。おいわいに %s が生まれた",
+			d.rebirths,
+			Config.rebirthTitle(d.rebirths),
+			if dragon then dragon.name else "ドラゴン"
+		)
+end
+
+--------------------------------------------------------------------------------
 -- メインループ：トレーニング、たまごを拾う・届ける、回復、ひみつの門
 --------------------------------------------------------------------------------
 
@@ -962,6 +1255,15 @@ task.spawn(function()
 						pickUpEgg(player, "gold")
 						break
 					end
+				end
+			end
+
+			-- 宝箱
+			for i, chest in chests do
+				if (pos - chest.position).Magnitude < 7 then
+					table.remove(chests, i)
+					openChest(player, chest)
+					break
 				end
 			end
 
@@ -1593,7 +1895,10 @@ Enemies.onDefeated(function(player, enemy, source)
 		addXp(player, 2 + (Tower.floorOf(player) or 1))
 	else
 		local zone = Config.Zones[enemy.zoneIndex]
-		local bounty = math.max(1, math.floor(zone.reward * Config.EnemyBountyRate * (if enemy.boss then 5 else 1)))
+		local bounty = math.max(
+			1,
+			math.floor(zone.reward * Config.EnemyBountyRate * (if enemy.boss then 5 else 1) * (weather().bounty or 1))
+		)
 		d.coins += bounty
 		local what = if enemy.boss then zone.bossName or "ボス" else zone.enemyName or zone.name .. "の敵"
 		notify:FireClient(player, string.format("⚔️ %sをたおした！ +%d コイン", what, bounty), true)
