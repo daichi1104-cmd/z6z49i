@@ -113,14 +113,15 @@ local function beast(r, o: BeastOpts): Look
 	r:seg(hp + v(0, -0.04, -0.12), hp + v(0, -0.1, -0.16 - o.snout), 0.27, 0.2, c, m)
 	r:ell(v(0.26, 0.06, 0.3), hp + v(0, -0.15, -0.12 - o.snout * 0.5), MOUTH)
 	for _, s in { -1, 1 } do
-		-- 光る目と、するどいまゆ
-		r:ball(0.1, hp + v(s * 0.15, 0.06, -0.15), o.eye, GLOW)
-		r:ball(0.035, hp + v(s * 0.17, 0.08, -0.2), BLACK)
+		-- たてに細い ひとみの目（ボスは光る）と、するどいまゆ
+		A.eye(r, hp + v(s * 0.15, 0.06, -0.15), 0.1, o.eye, o.boss)
 		r:ell(v(0.14, 0.05, 0.16), hp + v(s * 0.14, 0.13, -0.13), shade(c, 0.35), v(0, 0, s * -20), m)
 		r:ball(0.04, hp + v(s * 0.06, -0.04, -0.2 - o.snout), BLACK)
-		for i = 0, 1 do
-			local z = -0.22 - o.snout * (0.4 + i * 0.35)
-			r:spike(hp + v(s * 0.1, -0.13, z), hp + v(s * 0.1, -0.22, z), 0.04, IVORY)
+		-- 上の歯：前の きばが長く、奥へ行くほど小さい
+		for i = 0, 3 do
+			local z = -0.2 - o.snout * (0.85 - i * 0.24)
+			local long = if i == 0 then 0.11 else 0.07 - i * 0.008
+			r:spike(hp + v(s * 0.1, -0.13, z), hp + v(s * 0.1, -0.13 - long, z), 0.04, IVORY)
 		end
 		if o.ears then
 			r:spike(hp + v(s * 0.13, 0.12, 0.04), hp + v(s * 0.17, 0.32, 0.08), 0.13, c, m)
@@ -144,6 +145,14 @@ local function beast(r, o: BeastOpts): Look
 	end
 	r:bone("Jaw", "Head", hp + v(0, -0.12, -0.04))
 	r:seg(hp + v(0, -0.15, -0.08), hp + v(0, -0.17, -0.12 - o.snout * 0.9), 0.22, 0.09, o.belly, m)
+	-- 下の歯と、舌
+	for _, s in { -1, 1 } do
+		for i = 0, 2 do
+			local z = -0.2 - o.snout * (0.72 - i * 0.26)
+			r:spike(hp + v(s * 0.085, -0.15, z), hp + v(s * 0.085, -0.09, z), 0.035, IVORY)
+		end
+	end
+	r:ell(v(0.1, 0.03, 0.2 + o.snout * 0.5), hp + v(0, -0.135, -0.14 - o.snout * 0.45), Color3.fromRGB(190, 70, 80))
 	r:use("Root")
 	-- 足（前右と後ろ左、前左と後ろ右が同じリズム）
 	local legs = {}
@@ -156,6 +165,9 @@ local function beast(r, o: BeastOpts): Look
 			local knee = v(s * 0.28, -0.28, z - 0.06)
 			local ankle = v(s * 0.28, -0.45, z + 0.02)
 			r:seg(hip, knee, 0.2, 0.19, c, m)
+			-- かた・ももの筋肉と、ひざの関節
+			r:ell(v(0.22, 0.3, 0.3), hip + v(s * 0.03, -0.06, 0), c, nil, m)
+			r:ball(0.15, knee, c, m)
 			r:seg(knee, ankle, 0.13, 0.13, c, m)
 			r:ell(v(0.14, 0.06, 0.2), v(s * 0.28, -0.47, z - 0.05), c, nil, m)
 			for _, x in { -1, 0, 1 } do
@@ -169,6 +181,27 @@ local function beast(r, o: BeastOpts): Look
 	r:use("Root")
 	if o.spikes then
 		A.spines(r, v(0, 0.27, -0.35), v(0, 0.2, 0.5), 5, 0.14, 0.09, o.spikes, m)
+	end
+	if o.ruff then
+		-- 毛の ふさ：せなか・ほお・しっぽのつけ根に、さか立つ毛
+		for i = 0, 5 do
+			local base = v(0, 0.3 - i * 0.02, -0.5 + i * 0.2)
+			r:spike(base, base + v(0, 0.11, 0.1), 0.12, tint(c, 0.25), m)
+			for _, s in { -1, 1 } do
+				local side = v(s * 0.16, 0.24 - i * 0.02, -0.42 + i * 0.2)
+				r:spike(side, side + v(s * 0.06, 0.07, 0.11), 0.1, tint(c, 0.15), m)
+			end
+		end
+	else
+		-- ワニのような 皮の こぶ（せなかの両がわに 2列）
+		for _, s in { -1, 1 } do
+			for i = 0, 5 do
+				local z = -0.34 + i * 0.16
+				local zz = (z - 0.08) / 0.55
+				local y = 0.02 + 0.23 * math.sqrt(math.max(0.05, 1 - 0.3 - zz * zz))
+				r:ell(v(0.1, 0.06, 0.13), v(s * 0.17, y, z), shade(c, 0.3), v(0, 0, s * -30), m)
+			end
+		end
 	end
 	A.tail(r, "Tail", v(0, 0.02, 0.6), v(0, -0.25, 1), 3, o.tailLen, o.tailW, c, m, o.spikes)
 	r:use("Root")

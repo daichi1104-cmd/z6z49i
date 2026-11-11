@@ -13,6 +13,16 @@ Rig.__index = Rig
 
 export type Joint = { motor: Motor6D, base: CFrame }
 
+-- 皮ふでは ない材質（光るもの・目・金属の かざり）
+local NOT_SKIN = {
+	[Enum.Material.Neon] = true,
+	[Enum.Material.Glass] = true,
+	[Enum.Material.Metal] = true,
+	[Enum.Material.ForceField] = true,
+}
+local BELLY_LIGHT = Color3.fromRGB(245, 232, 200)
+local BACK_DARK = Color3.fromRGB(18, 16, 20)
+
 local function newPart(className: string): BasePart
 	local p = Instance.new(className) :: BasePart
 	p.Anchored = false
@@ -33,7 +43,7 @@ function Rig.new(name: string, scale: number)
 	self.scale = scale
 	self.bones = {} :: { [string]: BasePart }
 	self.boneParent = {} :: { [string]: string }
-	self.parts = {} :: { { part: BasePart, bone: string } }
+	self.parts = {} :: { { part: BasePart, bone: string, skin: boolean? } }
 	self.current = "Root"
 	self.joints = {} :: { [string]: Joint }
 	local root = newPart("Part")
@@ -79,7 +89,9 @@ function Rig:_add(p: BasePart, color: Color3, material: Enum.Material?)
 	p.Color = color
 	p.Material = material or Enum.Material.SmoothPlastic
 	p.Parent = self.model
-	table.insert(self.parts, { part = p, bone = self.current })
+	-- 皮ふ（うろこ・岩・毛）の部品は、あとで 自然な色むらと かげを つける
+	local skin = material ~= nil and not NOT_SKIN[material]
+	table.insert(self.parts, { part = p, bone = self.current, skin = skin })
 	return p
 end
 
@@ -191,6 +203,25 @@ end
 
 -- 組み立てを終える：部品を骨に、骨を親の骨につなぐ
 function Rig:finish(): Model
+	-- 本物の生き物のように：せなかは こく、おなかは 明るく（上からの光で 立体に見える）。
+	-- 部品ごとに ほんの少し 色をばらつかせて、ぬりつぶした感じを なくす
+	local low, high = math.huge, -math.huge
+	for _, info in self.parts do
+		if info.skin then
+			local y = info.part.CFrame.Position.Y
+			low, high = math.min(low, y), math.max(high, y)
+		end
+	end
+	if high > low then
+		for i, info in self.parts do
+			if info.skin then
+				local k = (info.part.CFrame.Position.Y - low) / (high - low)
+				local c = info.part.Color:Lerp(BELLY_LIGHT, 0.16 * (1 - k) ^ 2):Lerp(BACK_DARK, 0.22 * k ^ 1.5)
+				local wobble = ((i * 37) % 11 - 5) / 5 * 0.035
+				info.part.Color = if wobble > 0 then c:Lerp(Color3.new(1, 1, 1), wobble) else c:Lerp(BACK_DARK, -wobble)
+			end
+		end
+	end
 	for _, info in self.parts do
 		local bone = self.bones[info.bone]
 		local w = Instance.new("Weld")
