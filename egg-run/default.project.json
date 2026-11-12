@@ -13,6 +13,10 @@
       }
     },
     "StarterPlayer": {
+      "$properties": {
+        "CameraMaxZoomDistance": 300,
+        "CameraMinZoomDistance": 0.5
+      },
       "StarterPlayerScripts": {
         "Client": {
           "$path": "src/client"
