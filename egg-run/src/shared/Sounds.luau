@@ -50,6 +50,16 @@ local DEFS: { [string]: Def } = {
 	rain = { id = 1516791621, volume = 0.35 }, -- ずっと鳴らす 雨の音
 }
 
+-- BGM（Roblox が ゲーム用に出している 音楽。順番に ずっと流す）
+Sounds.Music = {
+	{ id = 9047876673, name = "Happy Adventure" },
+	{ id = 137345906601673, name = "Dream Of A Lifetime" },
+	{ id = 1841593944, name = "Enchanted Kingdom" },
+	{ id = 113554213644551, name = "Fantastic Race" },
+	{ id = 1837275525, name = "Pirate Island" },
+}
+Sounds.MusicVolume = 0.22
+
 local function url(def: Def): string
 	return "rbxassetid://" .. def.id
 end
@@ -115,11 +125,10 @@ function Sounds.on(part: Instance?, name: string)
 	if not def or not part then
 		return
 	end
-	local sound = part:FindFirstChild("Sfx_" .. name) :: Sound?
-	if not sound then
-		sound = make(def, part, name)
-	end
-	tune(sound :: Sound, def)(sound :: Sound):Play()
+	local found = part:FindFirstChild("Sfx_" .. name)
+	local sound: Sound = if found and found:IsA("Sound") then found else make(def, part, name)
+	tune(sound, def)
+	sound:Play()
 end
 
 -- 場所から鳴らす（見えない点を置いて、鳴り終わったら消す）

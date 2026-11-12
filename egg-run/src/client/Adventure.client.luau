@@ -295,13 +295,6 @@ local function refreshCard()
 	local lucky, luckyEnd = Config.luckyZone(t)
 	local streak = player:GetAttribute("Streak") or 0
 	local count = rebirths()
-	local hour = Config.clockAt(t)
-	local timeName = if hour < 5 or hour >= 19
-		then "🌙 よる"
-		elseif hour < 8 then "🌅 あさ"
-		elseif hour < 16 then "🏞️ ひる"
-		else "🌇 ゆうがた"
-
 	rowLabels[1].Text = string.format(
 		"%s 天気：%s ― %s（あと %s）",
 		weather.icon,
@@ -324,7 +317,7 @@ local function refreshCard()
 		else "🔥 れんぞく配達：やられずに続けて届けると、コインが +10% ずつ ふえる"
 	rowLabels[4].Text =
 		"🧰 宝箱：道のどこかに ときどき出る。さわると コイン（まれに 大当たり）"
-	rowLabels[5].Text = string.format("%s（1日は %d分で ひとまわり）", timeName, Config.DayLength // 60)
+	rowLabels[5].Text = "🏞️ 空：いつも明るい（夜には ならない）"
 
 	-- タイムアタックの記録
 	local best = bestTimes()

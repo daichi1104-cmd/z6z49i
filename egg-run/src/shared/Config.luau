@@ -1339,11 +1339,13 @@ function Config.weatherAt(now: number): (any, number)
 	return found, (window + 1) * Config.Weather.every
 end
 
--- 1日の長さ（秒）。全部のサーバーで同じ時刻になる。朝 → 昼 → 夕方 → 夜
+-- 1日の長さ（秒）。全部のサーバーで同じ時刻になる。
+-- 夜には ならない：朝 8時 → 昼 → 16時 まで進んだら、また 朝へ ゆっくり もどる（ずっと明るい）
 Config.DayLength = 1200
 function Config.clockAt(now: number): number
-	-- 始まりを朝の 8時にする
-	return (8 + (now % Config.DayLength) / Config.DayLength * 24) % 24
+	local t = (now % Config.DayLength) / Config.DayLength -- 0〜1
+	local wave = 1 - math.abs(t * 2 - 1) -- 0 → 1 → 0
+	return 8 + wave * 8
 end
 
 -- 宝箱：every 秒ごとに 道のどこかに出る（max こ まで、life 秒で消える）
