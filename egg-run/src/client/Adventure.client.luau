@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Sounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Sounds"))
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local rebirthAction = remotes:WaitForChild("Rebirth") :: RemoteFunction
 
@@ -412,6 +413,8 @@ rebirthButton.Activated:Connect(function()
 		messageUntil = os.clock() + 6
 	end
 	if ok and success then
+		Sounds.ui("rebirth")
+		Sounds.ui("fanfare")
 		-- おいわい：カードが 金色に光って はずむ
 		cardScale.Scale = 1.12
 		TweenService:Create(cardScale, TweenInfo.new(0.6, Enum.EasingStyle.Elastic), { Scale = 1 }):Play()

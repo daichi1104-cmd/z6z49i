@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Sounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Sounds"))
 local Enemies = require(script.Parent:WaitForChild("Enemies"))
 
 local Weapons = {}
@@ -909,6 +910,7 @@ local function mythicBurst(player: Player, weapon, origin: Vector3)
 	local R = cfg.burstRadius
 	local ground = origin - Vector3.new(0, 2.8, 0)
 	finisherName(origin, m)
+	Sounds.at(origin, "boom")
 
 	-- 1. ため：魔法陣（円と、回る光のもよう）
 	local circle =
@@ -1104,6 +1106,16 @@ function Weapons.swing(player: Player, tool: Tool, weapon, mult: number?)
 	anim.Value = if weapon.lunge then "Lunge" else "Slash"
 	anim.Parent = tool
 	Debris:AddItem(anim, 0.3)
+
+	-- ふる音（近くの人にも聞こえる）
+	Sounds.on(
+		root,
+		if weapon.shape == "bow"
+			then "bow"
+			elseif weapon.ranged or weapon.shape == "hammer" then "swoosh"
+			elseif weapon.lunge then "lunge"
+			else "slash"
+	)
 
 	local look = root.CFrame.LookVector
 	local facing = Vector3.new(look.X, 0, look.Z)

@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Sounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Sounds"))
 
 local Enemies = {}
 
@@ -654,6 +655,11 @@ function Enemies.damage(e: Enemy, amount: number, attacker: Player?, source: str
 	end
 	e.hp = math.max(0, e.hp - amount)
 	refreshGauge(e)
+	-- 武器が当たった音（ドラゴンのこうげきは 回数が多いので 鳴らさない）
+	local center = centerOf(e)
+	if source == "weapon" and e.hp > 0 then
+		Sounds.at(center, "hit")
+	end
 	-- 当たったら一瞬白く光る
 	e.flash.Enabled = true
 	task.delay(0.1, function()
@@ -665,6 +671,7 @@ function Enemies.damage(e: Enemy, amount: number, attacker: Player?, source: str
 		e.dead = true
 		e.respawnAt = os.clock() + (if e.boss then Config.BossRespawnTime else Config.EnemyRespawnTime)
 		e.model.Parent = nil
+		Sounds.at(center, if e.boss then "boom" else "defeat")
 		if defeatHandler then
 			defeatHandler(attacker, e, source)
 		end

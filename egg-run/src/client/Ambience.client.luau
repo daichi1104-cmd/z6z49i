@@ -10,6 +10,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Sounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Sounds"))
 local player = Players.LocalPlayer
 
 local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -434,7 +435,31 @@ local flashUntil = 0
 local nextFlash = os.clock() + 8
 local activeEmitters: { [string]: boolean } = {}
 
+-- 雨の音：雨がふっている間だけ、ゆっくり大きくなって ゆっくり消える（ふぶきは 小さめ）
+local rainSound = Sounds.loop("rain")
+local rainVolume = -1
+local function setRain(volume: number)
+	if volume == rainVolume then
+		return
+	end
+	rainVolume = volume
+	if volume > 0 and not rainSound.IsPlaying then
+		rainSound:Play()
+	end
+	TweenService:Create(rainSound, TweenInfo.new(2.5), { Volume = volume }):Play()
+	if volume == 0 then
+		task.delay(2.6, function()
+			if rainVolume == 0 then
+				rainSound:Stop()
+			end
+		end)
+	end
+end
+
 local function setEmitters(wanted: { [string]: boolean })
+	setRain(
+		if wanted.rain then Sounds.volumeOf("rain") elseif wanted.blizzard then Sounds.volumeOf("rain") * 0.4 else 0
+	)
 	for name, e in EMITTERS do
 		local on = wanted[name] == true
 		if activeEmitters[name] ~= on then
@@ -564,6 +589,10 @@ local function update(dt: number, retarget: boolean)
 		nextFlash = os.clock() + 5 + math.random() * 9
 		flashUntil = os.clock() + 0.18
 		Lighting.ExposureCompensation = 1.2
+		-- 光ってから 少しおくれて ゴロゴロ（遠いかみなりほど おそく聞こえる）
+		task.delay(0.3 + math.random() * 1.2, function()
+			Sounds.ui(if math.random() < 0.5 then "thunder" else "lightning")
+		end)
 	end
 end
 

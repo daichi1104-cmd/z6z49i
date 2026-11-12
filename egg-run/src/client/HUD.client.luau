@@ -8,6 +8,7 @@ local SoundService = game:GetService("SoundService")
 local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Sounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Sounds"))
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local notifyEvent = remotes:WaitForChild("Notify") :: RemoteEvent
 local trainGain = remotes:WaitForChild("TrainGain") :: RemoteEvent
@@ -306,6 +307,7 @@ toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 toastLayout.Parent = toastHolder
 
 local function toast(message: string, good: boolean?)
+	Sounds.ui(Sounds.forToast(message, good))
 	local f = Instance.new("Frame")
 	f.Size = UDim2.new(1, 0, 0, 32)
 	f.BackgroundColor3 = if good then Color3.fromRGB(40, 150, 70) else Color3.fromRGB(25, 25, 40)
@@ -334,6 +336,7 @@ notifyEvent.OnClientEvent:Connect(toast)
 
 -- トレーニングで増えたスピードを、ふわっと表示
 trainGain.OnClientEvent:Connect(function(gain: number)
+	Sounds.ui("train")
 	local t = text(gui, {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, math.random(-40, 40), 0.45, 0),
@@ -383,6 +386,7 @@ end)
 
 -- 敵にぶつかったら、はじき飛ばされる
 knockback.OnClientEvent:Connect(function(direction: Vector3)
+	Sounds.ui("hurt")
 	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if root then
 		root.AssemblyLinearVelocity = direction * 70 + Vector3.new(0, 40, 0)
@@ -1677,6 +1681,9 @@ local function openShop(tab: string?)
 		shopScale.Scale = 0.85
 		TweenService:Create(shopScale, TweenInfo.new(0.22, Enum.EasingStyle.Back), { Scale = 1 }):Play()
 	end
+	if not shop.Visible then
+		Sounds.ui("open")
+	end
 	shop.Visible = true
 	render()
 	updateCageRows()
@@ -1813,6 +1820,7 @@ local _, setDailyBadge = menuButton(7, "🎁", "毎日", Color3.fromRGB(225, 80,
 	openShop("daily")
 end)
 menuButton(8, "🏠", "ベースへ", BLUE, function()
+	Sounds.ui("warp")
 	goHome:FireServer()
 end)
 
@@ -1990,6 +1998,8 @@ showHatch = function(id: string, isNew: boolean, title: string?)
 	-- ぽんっと大きくなって出てくる
 	hatchPopup.Size = UDim2.new(0, 60, 0, 50)
 	hatchPopup.Visible = true
+	Sounds.ui("pop")
+	Sounds.ui("fanfare")
 	TweenService:Create(hatchPopup, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Size = UDim2.new(0, 320, 0, 250) })
 		:Play()
 end

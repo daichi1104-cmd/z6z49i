@@ -8,6 +8,7 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Sounds = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Sounds"))
 local WorldBuilder = require(script.Parent:WaitForChild("WorldBuilder"))
 local Enemies = require(script.Parent:WaitForChild("Enemies"))
 local Dragons = require(script.Parent:WaitForChild("Dragons"))
@@ -1790,6 +1791,7 @@ useSkill.OnServerInvoke = function(player: Player)
 			string.format("ドラゴンが レベル %d になると わざを覚えるよ", Config.SkillLevel)
 	end
 	skillReadyAt[player] = os.time() + Config.SkillCooldown
+	Sounds.on(root, "roar")
 	syncStats(player)
 	applyStats(player)
 	return true, "✨ " .. table.concat(used, "・") .. "！"
