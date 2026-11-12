@@ -127,6 +127,27 @@ local function chipLines(): { string }
 			clock(luckyEnd - t)
 		)
 	)
+	-- みんなのボス：出ている間は のこり時間、いないときは 次までの時間
+	local bossEnd = workspace:GetAttribute("BossEnd")
+	local bossNext = workspace:GetAttribute("BossNext")
+	if typeof(bossEnd) == "number" and t < bossEnd then
+		table.insert(
+			lines,
+			string.format("👑 みんなのボス出現中！（あと %s）赤い門へ", clock(bossEnd - t))
+		)
+	elseif typeof(bossNext) == "number" and bossNext > t then
+		table.insert(lines, string.format("👑 みんなのボスまで あと %s", clock(bossNext - t)))
+	end
+	local friend = workspace:GetAttribute("FriendBoost")
+	if typeof(friend) == "number" and friend > 1 then
+		table.insert(
+			lines,
+			string.format(
+				"🤝 なかまブースト +%d%%（人がふえると上がる）",
+				math.floor((friend - 1) * 100 + 0.5)
+			)
+		)
+	end
 	local streak = player:GetAttribute("Streak") or 0
 	if streak >= 1 then
 		table.insert(

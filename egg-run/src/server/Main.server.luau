@@ -14,6 +14,8 @@ local Enemies = require(script.Parent:WaitForChild("Enemies"))
 local Dragons = require(script.Parent:WaitForChild("Dragons"))
 local Progress = require(script.Parent:WaitForChild("Progress"))
 local Tower = require(script.Parent:WaitForChild("Tower"))
+local WorldBoss = require(script.Parent:WaitForChild("WorldBoss"))
+local Ranking = require(script.Parent:WaitForChild("Ranking"))
 local Weapons = require(script.Parent:WaitForChild("Weapons"))
 local Armor = require(script.Parent:WaitForChild("Armor"))
 
@@ -329,6 +331,7 @@ local function trainMult(player: Player, d: Data): number
 		* (1 + Config.armorBonus(d.armor).train / 100)
 		* Config.rebirthTrainMult(d.rebirths)
 		* (weather().train or 1)
+		* Config.friendBoost(#Players:GetPlayers())
 end
 
 local function damageMult(player: Player, d: Data): number
@@ -351,7 +354,10 @@ local function coinMult(d: Data): number
 			m *= dragon.coinMult
 		end
 	end
-	return m * (1 + Config.armorBonus(d.armor).coin / 100) * Config.rebirthCoinMult(d.rebirths)
+	return m
+		* (1 + Config.armorBonus(d.armor).coin / 100)
+		* Config.rebirthCoinMult(d.rebirths)
+		* Config.friendBoost(#Players:GetPlayers())
 end
 
 local function regenOf(d: Data): number
@@ -813,6 +819,7 @@ Players.PlayerAdded:Connect(function(player)
 			streak[player] = 0
 			player:SetAttribute("Streak", 0)
 			Tower.leave(player, false)
+			WorldBoss.leave(player, false)
 		end)
 	end
 	player.CharacterAdded:Connect(onCharacter)
@@ -1814,6 +1821,10 @@ goHome.OnServerEvent:Connect(function(player)
 		Tower.leave(player, true)
 		return
 	end
+	if WorldBoss.isInside(player) then
+		WorldBoss.leave(player, true)
+		return
+	end
 	if carrying[player] then
 		notify:FireClient(player, "🥚 たまごを持っている間は ワープできません")
 		return
@@ -1879,6 +1890,11 @@ for _, home in world.enemyHomes do
 end
 -- 敵をたおしたら、たおしたプレイヤーにコインと経験値
 Enemies.onDefeated(function(player, enemy, source)
+	if enemy.tag == "world" then
+		-- みんなのボス：ごほうびは ダメージを与えた全員に（WorldBoss が分ける）
+		WorldBoss.onDefeated(enemy)
+		return
+	end
 	if enemy.tag == "tower" then
 		Tower.onEnemyDefeated(enemy)
 	end
@@ -1909,6 +1925,120 @@ Enemies.onDefeated(function(player, enemy, source)
 	checkProgress(player)
 	syncStats(player)
 end)
+
+--------------------------------------------------------------------------------
+-- みんなで遊ぶ：みんなのボス・なかまブースト・ランキング
+--------------------------------------------------------------------------------
+
+-- その人の「1秒あたりのこうげき力」（武器 + 連れているドラゴン）。みんなのボスの体力を決めるのに使う
+local function powerOf(player: Player): number
+	local d = data[player]
+	if not d then
+		return 0
+	end
+	local dps = 0
+	local weapon = Config.findWeapon(d.weapon)
+	if weapon then
+		dps += weapon.damage / weapon.cooldown * (1 + Config.armorBonus(d.armor).attack / 100)
+	end
+	for _, dragon in teamDragons(d) do
+		local attack = dragon.attack
+		if attack then
+			dps += attack.damage * (attack.shots or 1) / attack.cooldown * Config.levelPower(levelOf(d, dragon.id))
+		end
+	end
+	return dps
+end
+
+local bossPrompt = WorldBoss.init({
+	notify = function(player: Player, msg: string, good: boolean?)
+		notify:FireClient(player, msg, good)
+	end,
+	home = sendHome,
+	power = powerOf,
+	reward = function(player: Player, share: number, mvp: boolean)
+		local d = data[player]
+		if not d then
+			return
+		end
+		local wb = Config.WorldBoss
+		local coins = math.floor(Progress.rewardBase(d) * wb.coins * (if mvp then wb.mvp else 1))
+		d.coins += coins
+		Progress.bump(d, "worldBoss")
+		local dragon = Dragons.find((mysteryHatch(player)))
+		notify:FireClient(
+			player,
+			string.format(
+				"🎉 ボスの ごほうび！ +%d コイン と %s（あなたの活やく %d%%%s）",
+				coins,
+				if dragon then dragon.name else "ドラゴン",
+				math.floor(share * 100 + 0.5),
+				if mvp then "・いちばん！" else ""
+			),
+			true
+		)
+		addXp(player, wb.xp)
+		checkProgress(player)
+		syncStats(player)
+		save(player)
+	end,
+}, workspace, enemyFolder)
+
+bossPrompt.Triggered:Connect(function(player)
+	if carrying[player] then
+		notify:FireClient(player, "🥚 たまごを持っている間は 入れません")
+		return
+	end
+	if Tower.isInside(player) then
+		return
+	end
+	local ok, msg = WorldBoss.enter(player)
+	notify:FireClient(player, msg, ok)
+end)
+
+-- なかまブースト：人数が変わったら、全員の数字を直して 知らせる
+local function friendBoostChanged(joined: Player?)
+	local count = #Players:GetPlayers()
+	workspace:SetAttribute("FriendBoost", Config.friendBoost(count))
+	for _, player in Players:GetPlayers() do
+		if data[player] then
+			syncStats(player)
+			if joined and player ~= joined then
+				notify:FireClient(
+					player,
+					string.format(
+						"🤝 %s が来た！ なかまブースト +%d%%（トレーニングとたまごのコイン）",
+						joined.DisplayName,
+						math.floor((Config.friendBoost(count) - 1) * 100 + 0.5)
+					),
+					true
+				)
+			end
+		end
+	end
+end
+Players.PlayerAdded:Connect(function(player)
+	friendBoostChanged(player)
+end)
+Players.PlayerRemoving:Connect(function()
+	-- 出ていく人が 数えられなくなってから 計算する
+	task.defer(friendBoostChanged)
+end)
+friendBoostChanged()
+
+Ranking.init(function(player: Player, key: string): number?
+	local d = data[player]
+	if not d then
+		return nil
+	end
+	if key == "rebirths" then
+		return d.rebirths
+	elseif key == "eggs" then
+		return d.eggs
+	end
+	return d.stats[key]
+end, world.folder)
+
 Enemies.start(function(player)
 	local d = data[player]
 	return if d then damageMult(player, d) else 1

@@ -505,6 +505,58 @@ end
 Config.GoldenEvent = { every = 1800, duration = 180 }
 
 ------------------------------------------------------------------------
+-- みんなで遊ぶ：みんなのボス・なかまブースト・ランキング
+------------------------------------------------------------------------
+
+-- みんなのボス：every 秒ごとに（offset 秒ずらして）出て、duration 秒で にげる（全部のサーバーで同じ時間）
+-- 15分ごと（毎時 5分・20分・35分・50分）から 5分間。黄金のたまごイベントと重ならない
+-- 体力 = サーバーにいる全員の「1秒あたりのこうげき力」の合計 × fightSeconds（人数や強さがちがっても 同じくらいの時間で たおせる）
+-- coins：ごほうびのコイン = その人の「基本」（Progress.rewardBase）× coins。いちばん活やくした人は mvp 倍
+Config.WorldBoss = {
+	every = 900,
+	offset = 300,
+	duration = 300,
+	fightSeconds = 45,
+	minHp = 300,
+	size = 20,
+	speed = 14,
+	damage = 25,
+	arena = 260, -- 闘技場の一辺
+	center = Vector3.new(-2000, 900, 0), -- 闘技場の場所（塔の部屋と同じ高さの 空の上）
+	gate = Vector3.new(42, 0, 68), -- ベースにある 入口の門
+	coins = 8,
+	mvp = 2,
+	xp = 30,
+}
+
+-- いまの回が始まった時刻と、次の回が始まる時刻
+function Config.worldBossWindow(now: number): (number, number)
+	local wb = Config.WorldBoss
+	local start = now - (now - wb.offset) % wb.every
+	return start, start + wb.every
+end
+
+-- なかまブースト：同じサーバーに ほかの人が 1人いるごとに トレーニングとたまごのコイン +per（max 人分まで）
+Config.FriendBoost = { per = 0.1, max = 5 }
+function Config.friendBoost(playerCount: number): number
+	local others = math.clamp(playerCount - 1, 0, Config.FriendBoost.max)
+	return 1 + others * Config.FriendBoost.per
+end
+
+-- ランキングの看板（ベースのうしろ）：every 秒ごとに 書きかえる。全部のサーバーを合わせた 上位 top 人
+-- stat：くらべる数字（rebirths / towerBest / eggs / worldBoss）
+Config.Ranking = {
+	every = 120,
+	top = 10,
+	boards = {
+		{ key = "rebirths", title = "🌟 転生", unit = "回", color = Color3.fromRGB(255, 200, 80) },
+		{ key = "towerBest", title = "🗼 塔のぼり", unit = "階", color = Color3.fromRGB(180, 140, 255) },
+		{ key = "eggs", title = "🥚 たまご", unit = "こ", color = Color3.fromRGB(120, 220, 140) },
+		{ key = "worldBoss", title = "👑 みんなのボス", unit = "回", color = Color3.fromRGB(255, 120, 120) },
+	},
+}
+
+------------------------------------------------------------------------
 -- ドラゴンのレベルと、わざ
 ------------------------------------------------------------------------
 

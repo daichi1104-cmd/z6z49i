@@ -42,6 +42,7 @@ type Enemy = {
 	stunUntil: number,
 	tag: string?,
 	owner: Player?,
+	dealt: { [Player]: number }, -- だれが どれだけ ダメージを与えたか（みんなのボスの ごほうび分けに使う）
 }
 
 -- 塔などで、決まった強さの敵を出すときの設定
@@ -580,6 +581,7 @@ function Enemies.spawn(home: Vector3, zoneIndex: number, boss: boolean, parent: 
 		stunUntil = 0,
 		tag = o.tag,
 		owner = o.owner,
+		dealt = {},
 	}
 	refreshGauge(e)
 	table.insert(active, e)
@@ -652,6 +654,9 @@ end
 function Enemies.damage(e: Enemy, amount: number, attacker: Player?, source: string?)
 	if e.dead then
 		return
+	end
+	if attacker then
+		e.dealt[attacker] = (e.dealt[attacker] or 0) + math.min(amount, e.hp)
 	end
 	e.hp = math.max(0, e.hp - amount)
 	refreshGauge(e)
@@ -737,6 +742,7 @@ function Enemies.start(getDamageMult: (Player) -> number, onHit: ((Player, Vecto
 			if e.dead then
 				if os.clock() >= e.respawnAt then
 					e.dead = false
+					table.clear(e.dealt)
 					e.hp = e.maxHp
 					refreshGauge(e)
 					e.pos = e.home
@@ -811,6 +817,7 @@ function Enemies.start(getDamageMult: (Player) -> number, onHit: ((Player, Vecto
 	Players.PlayerRemoving:Connect(function(player)
 		for _, e in active do
 			e.lastHit[player] = nil
+			e.dealt[player] = nil
 		end
 	end)
 end
