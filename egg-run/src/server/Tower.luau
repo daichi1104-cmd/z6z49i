@@ -89,8 +89,8 @@ local function buildArena(center: Vector3): (Model, TextLabel)
 		CanCollide = false,
 	}, model)
 	-- まわりの柱（上に光る火）と、低いへい
-	for i = 0, 11 do
-		local a = i / 12 * math.pi * 2
+	for i = 0, 19 do
+		local a = i / 20 * math.pi * 2
 		local pos = center + Vector3.new(math.cos(a), 0, math.sin(a)) * (size / 2 - 4)
 		part({
 			Name = "Pillar",
@@ -112,6 +112,27 @@ local function buildArena(center: Vector3): (Model, TextLabel)
 		light.Range = 30
 		light.Brightness = 2
 		light.Parent = flame
+	end
+	-- 広い部屋のまん中が 暗くならないように、うかぶ明かりを 内がわに ならべる
+	for i = 0, 7 do
+		local a = (i + 0.5) / 8 * math.pi * 2
+		local lamp = part({
+			Name = "Lamp",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(3, 3, 3),
+			CFrame = CFrame.new(
+				center + Vector3.new(math.cos(a), 0, math.sin(a)) * (size * 0.24) + Vector3.new(0, 34, 0)
+			),
+			Color = Color3.fromRGB(190, 150, 255),
+			Material = Enum.Material.Neon,
+			CanCollide = false,
+		}, model)
+		lamp.CastShadow = false
+		local lampLight = Instance.new("PointLight")
+		lampLight.Color = lamp.Color
+		lampLight.Range = 60
+		lampLight.Brightness = 1.5
+		lampLight.Parent = lamp
 	end
 	for _, d in { Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1) } do
 		local along = Vector3.new(math.abs(d.Z), 0, math.abs(d.X))
@@ -178,9 +199,11 @@ local function spawnFloor(player: Player, run: Run)
 	for i = 1, info.count do
 		local isBoss = info.boss and i == 1
 		local a = (i / info.count) * math.pi * 2
+		-- 部屋の広さに合わせて、敵を 奥がわに 広げて出す
+		local s = Config.Tower.size / 120
 		local offset = if info.count == 1
-			then Vector3.new(0, 0, -30)
-			else Vector3.new(math.cos(a) * 28, 0, -20 + math.sin(a) * 18)
+			then Vector3.new(0, 0, -30 * s)
+			else Vector3.new(math.cos(a) * 28 * s, 0, (-20 + math.sin(a) * 18) * s)
 		local e = Enemies.spawn(run.center + offset, info.look, isBoss, enemyFolder, {
 			hp = if isBoss then info.hp * 6 else info.hp,
 			speed = info.speed,
@@ -240,7 +263,7 @@ function Tower.enter(player: Player): (boolean, string)
 		clearing = false,
 	}
 	runs[player] = run
-	character:PivotTo(CFrame.new(center + Vector3.new(0, 4, 40)) * CFrame.Angles(0, 0, 0))
+	character:PivotTo(CFrame.new(center + Vector3.new(0, 4, Config.Tower.size / 3)) * CFrame.Angles(0, 0, 0))
 	player:SetAttribute("TowerFloor", 1)
 	spawnFloor(player, run)
 	return true, "🗼 塔に入った！ 上をめざそう（🏠 ベースへ で出られる）"
