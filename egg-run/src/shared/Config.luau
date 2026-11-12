@@ -775,7 +775,7 @@ end
 
 -- 塔の部屋は、空の高いところ（y = arenaY）に、プレイヤーごとに作る
 -- size は部屋の一辺。広いほど 逃げて こうげきをよけやすい（spacing より小さくすること）
-Config.Tower = { arenaY = 900, spacing = 400, size = 240, rest = 3 }
+Config.Tower = { arenaY = 900, spacing = 800, size = 480, rest = 3 }
 
 -- f 階の敵：5階ごとにボス
 function Config.towerFloor(f: number)
