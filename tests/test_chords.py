@@ -9,6 +9,7 @@ from music21 import converter, harmony
 
 from band2score.chords import ChordEvent, detect_chords
 from band2score.models import NoteEvent, Transcription
+from band2score.rhythm import BeatGrid
 from band2score.score import build_score, write_chord_chart, write_musicxml
 from band2score.transcribe import make_monophonic
 
@@ -63,7 +64,8 @@ def _make_song(tmp: Path):
 
 def test_detect_chords_progression(tmp_path: Path):
     piano, bass, bass_notes = _make_song(tmp_path)
-    events = detect_chords([piano], 120, 0.0, bass_path=bass, bass_notes=bass_notes)
+    grid = BeatGrid.constant(120, 0.0, 30)
+    events = detect_chords([piano], grid, bass_path=bass, bass_notes=bass_notes)
     assert [e.label(flats=True) for e in events] == [p[3] for p in PROGRESSION]
     starts = [round(e.start / BEAT) for e in events]
     assert starts == list(np.cumsum([0] + [p[2] for p in PROGRESSION[:-1]]))
@@ -76,7 +78,7 @@ def test_make_monophonic_drops_overtones():
 
 
 def _transcription_with_chords():
-    tr = Transcription(tempo=120, beat_offset=0.0)
+    tr = Transcription(grid=BeatGrid.constant(120, 0.0, 10))
     tr.parts["piano"] = [NoteEvent(0, 4.0, p) for p in (58, 62, 65)]
     tr.chords = [ChordEvent(0.0, 2.0, 10, "maj7"), ChordEvent(2.0, 3.0, 3, "", bass=7),
                  ChordEvent(3.0, 4.0, 5, "7")]

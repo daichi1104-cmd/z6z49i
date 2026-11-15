@@ -8,8 +8,10 @@ import soundfile as sf
 from music21 import converter
 
 from band2score.models import NoteEvent, Transcription
+from band2score.rhythm import BeatGrid
 from band2score.score import build_score, write_midi, write_musicxml
-from band2score.transcribe import HIHAT, KICK, SNARE, make_monophonic, transcribe_drums
+from band2score.transcribe import (HIHAT, KICK, SNARE, fix_octave_errors, make_monophonic,
+                                   prune_overtones, transcribe_drums)
 
 
 def test_make_monophonic_cuts_overlaps_and_drops_simultaneous():
@@ -25,7 +27,7 @@ def test_make_monophonic_cuts_overlaps_and_drops_simultaneous():
 
 def _transcription():
     beat = 0.5  # 120 BPM
-    tr = Transcription(tempo=120, beat_offset=0.0)
+    tr = Transcription(grid=BeatGrid.constant(120, 0.0, 10))
     tr.parts["bass"] = [NoteEvent(i * beat, i * beat + 0.45, 36) for i in range(8)]
     tr.parts["piano"] = [NoteEvent(0, 0.95, p) for p in (60, 64, 67)]
     tr.parts["drums"] = [NoteEvent(0, 0.1, KICK), NoteEvent(0, 0.1, HIHAT),
@@ -72,3 +74,36 @@ def test_transcribe_drums_separates_kick_and_hihat(tmp_path: Path):
     hats = [n.start for n in hits if n.pitch == HIHAT]
     assert len(kicks) == 2 and abs(kicks[0] - 0.25) < 0.03
     assert len(hats) == 2 and abs(hats[0] - 0.75) < 0.03
+
+
+def test_fix_octave_errors_moves_quiet_jumps_but_keeps_real_leaps():
+    def seq(pitches, vels):
+        return [NoteEvent(i * 0.5, i * 0.5 + 0.45, p, v) for i, (p, v) in enumerate(zip(pitches, vels))]
+
+    # 弱い C6・B5（倍音の取り違え）は 1オクターブ下に直る
+    fixed = fix_octave_errors(seq([74, 84, 83, 72, 74], [90, 45, 45, 90, 90]))
+    assert [n.pitch for n in fixed] == [74, 72, 71, 72, 74]
+    # 普通の強さで弾いたオクターブの跳躍はそのまま
+    leap = fix_octave_errors(seq([60, 72, 71, 60, 62], [90, 92, 88, 90, 90]))
+    assert [n.pitch for n in leap] == [60, 72, 71, 60, 62]
+
+
+def test_prune_overtones_keeps_played_octaves():
+    chord_with_ghost = [NoteEvent(0, 1, 55, 90), NoteEvent(0, 1, 60, 90), NoteEvent(0, 1, 64, 90),
+                        NoteEvent(0.01, 0.2, 74, 40)]  # D5 = G3 の 3倍音（短く弱い）
+    assert sorted(n.pitch for n in prune_overtones(chord_with_ghost)) == [55, 60, 64]
+    octave = [NoteEvent(0, 1, 36, 90), NoteEvent(0, 1, 48, 85)]  # 左手のオクターブ
+    assert len(prune_overtones(octave)) == 2
+
+
+def test_piano_grand_staff(tmp_path: Path):
+    tr = Transcription(grid=BeatGrid.constant(120, 0.0, 10))
+    tr.parts["piano"] = ([NoteEvent(i, i + 0.95, p) for i in range(4) for p in (36, 48)]
+                         + [NoteEvent(i * 0.5, i * 0.5 + 0.45, p) for i in range(8)
+                            for p in (64, 67, 72)])
+    xml = write_musicxml(build_score(tr, "gs"), tmp_path / "gs.musicxml")
+    text = xml.read_text()
+    assert "<staves>2</staves>" in text
+    parts = converter.parse(xml).parts
+    assert min(p.midi for p in parts[1].pitches) == 36
+    assert min(p.midi for p in parts[0].pitches) >= 60

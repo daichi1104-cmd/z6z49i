@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .models import NoteEvent
+from .rhythm import BeatGrid
 
 import librosa
 import numpy as np
@@ -128,15 +129,18 @@ def _bass_from_audio(y: np.ndarray, frames: np.ndarray, n: int) -> tuple[np.ndar
     bc = librosa.feature.chroma_cqt(y=y, sr=SR, hop_length=HOP,
                                     fmin=librosa.note_to_hz("C1"), n_octaves=3)
     bc = _segments(bc, frames)[:, :n]
-    return bc.argmax(axis=0), bc.max(axis=0) > 0.5
+    rms = _segments(librosa.feature.rms(y=y, hop_length=HOP), frames, np.mean)[0, :n]
+    audible = rms > 0.05 * (rms.max() + 1e-9)  # 無音の所の「音名」は雑音なので使わない
+    return bc.argmax(axis=0), (bc.max(axis=0) > 0.5) & audible
 
 
-def detect_chords(harmony_paths: list[Path], tempo: float, beat_offset: float,
+def detect_chords(harmony_paths: list[Path], grid: BeatGrid,
                   bass_path: Path | None = None, bass_notes: list[NoteEvent] | None = None,
                   beats_per_chord: int = 1, change_penalty: float = 0.8) -> list[ChordEvent]:
     """コード進行を推定する。
 
     harmony_paths: 和音を鳴らす楽器の音声（ギター・ピアノなど。ベースは入れない方が正確）
+    grid:          拍の格子。コードは拍の区切りごとに判定する（2拍・4拍ごとのときは小節の頭から数える）
     bass_path:     ベースの音声。ルート・分数コードの判定に使う
     bass_notes:    採譜済みのベースの音。あれば bass_path より優先して使う
     beats_per_chord: コードを判定する細かさ（拍）。1 なら拍ごとにコードが変わりうる
@@ -148,9 +152,16 @@ def detect_chords(harmony_paths: list[Path], tempo: float, beat_offset: float,
     y = librosa.effects.harmonic(y)  # 打楽器っぽい成分を減らす
     duration = len(y) / SR
 
-    # 区切り（楽譜と同じテンポ・拍位置を使う）
-    seg = 60.0 / tempo * beats_per_chord
-    bounds = np.arange(beat_offset, duration, seg)
+    # 区切り（楽譜と同じ拍の格子を使う）
+    beats = grid.times[(grid.times >= -1e-6) & (grid.times < duration)]
+    if len(beats) and beats[0] > 0.05:
+        beats = np.concatenate([[0.0], beats])  # 最初の拍より前も 1区間として見る
+    if beats_per_chord > 1:
+        numbers = np.round(grid.to_beats(beats)).astype(int)
+        keep = ((numbers - grid.downbeat) % beats_per_chord == 0)
+        keep[0] = True
+        beats = beats[keep]
+    bounds = np.concatenate([beats, [duration]])
     if len(bounds) < 2:
         return []
     n = len(bounds) - 1
@@ -187,6 +198,7 @@ def detect_chords(harmony_paths: list[Path], tempo: float, beat_offset: float,
 
     # 無音に近い区間は「コードなし」
     quiet = energy < 0.05 * (energy.max() + 1e-9)
+    scores[:, quiet] = 0.0  # 無音に近い所の響きは雑音なので使わない
     scores = np.vstack([scores, np.where(quiet, 1.0, 0.0)[None, :]])
 
     # スコア → 確率にして、コードが変わりにくくなるように Viterbi で並びを決める

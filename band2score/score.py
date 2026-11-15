@@ -7,8 +7,10 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import pretty_midi
-from music21 import (chord, clef, harmony, instrument, key, metadata, meter, note, percussion,
+from music21 import (chord, clef, harmony, instrument, key, layout, metadata, meter, note,
+                     percussion,
                      stream, tempo as m21tempo)
 
 from .chords import NO_CHORD
@@ -21,7 +23,8 @@ DRUM_DISPLAY = {KICK: ("F4", "normal"), SNARE: ("C5", "normal"), HIHAT: ("G5", "
 
 
 def _to_beats(t: float, tr: Transcription, shift: float) -> float:
-    return (t - tr.beat_offset) * tr.tempo / 60.0 + shift
+    """秒 → 楽譜上の位置（4分音符単位）。拍の格子に沿って変換する。"""
+    return float(tr.grid.position(t)) + shift
 
 
 def _quantize(x: float, grid: float) -> float:
@@ -39,9 +42,19 @@ def _bar_shift(tr: Transcription) -> float:
     return math.ceil(-earliest / BEATS_PER_BAR) * BEATS_PER_BAR
 
 
+def _final_barline(tr: Transcription, shift: float, grid: float) -> float:
+    """最後の音が始まる小節の終わり（楽譜の最後の小節線）の位置。"""
+    starts = [n.start for notes in tr.parts.values() for n in notes]
+    if not starts:
+        return BEATS_PER_BAR
+    last = _quantize(_to_beats(max(starts), tr, shift), grid)
+    return (math.floor(last / BEATS_PER_BAR) + 1) * BEATS_PER_BAR
+
+
 def _quantized_notes(notes: list[NoteEvent], tr: Transcription, shift: float,
                      grid: float) -> list[tuple[float, float, NoteEvent]]:
     """(開始拍, 長さ, 元の音符) のリストに変換し、グリッドにそろえる。"""
+    final = _final_barline(tr, shift, grid)
     out = []
     for n in notes:
         start = _quantize(_to_beats(n.start, tr, shift), grid)
@@ -50,8 +63,26 @@ def _quantized_notes(notes: list[NoteEvent], tr: Transcription, shift: float,
             if start < -grid:
                 continue
             start = 0.0
+        end = min(end, final)  # 最後の小節線を越えてのびる音は切る（余分な空の小節を作らない）
         out.append((start, max(end - start, grid), n))
-    return _close_small_gaps(out, grid)
+    return _close_small_gaps(_align_chord_ends(out, grid), grid)
+
+
+def _align_chord_ends(notes: list[tuple[float, float, NoteEvent]],
+                      grid: float) -> list[tuple[float, float, NoteEvent]]:
+    """同時に始まる音（和音）の終わりがわずかにずれていたら、一番長い音にそろえる。
+
+    そのままだと和音が細かく分かれてタイだらけになるため。
+    """
+    longest: dict[float, float] = {}
+    for start, dur, _ in notes:
+        longest[start] = max(longest.get(start, 0.0), dur)
+    out = []
+    for start, dur, n in notes:
+        if longest[start] - dur <= 2 * grid + 1e-9:
+            dur = longest[start]
+        out.append((start, dur, n))
+    return out
 
 
 def _close_small_gaps(notes: list[tuple[float, float, NoteEvent]],
@@ -74,8 +105,32 @@ def _close_small_gaps(notes: list[tuple[float, float, NoteEvent]],
     return out
 
 
+GRAND_STAFF_SPLIT = 60  # ピアノ譜で、これ（真ん中のド）より低い音を下の段（左手）に書く
+
+
+def _needs_grand_staff(notes: list[NoteEvent]) -> bool:
+    """ピアノを 2段譜にするか。低い音がある程度あり、音域が広いときだけにする。"""
+    if not notes:
+        return False
+    pitches = np.array([n.pitch for n in notes])
+    low = float(np.mean(pitches < GRAND_STAFF_SPLIT))
+    return 0.15 <= low and pitches.min() < 55 and pitches.max() > 64
+
+
+def _piano_parts(notes: list[NoteEvent], tr: Transcription, shift: float, grid: float,
+                 ks: key.Key | None) -> list[stream.Part]:
+    """ピアノを上の段（ト音記号）・下の段（ヘ音記号）の 2段譜にする。"""
+    upper = [n for n in notes if n.pitch >= GRAND_STAFF_SPLIT]
+    lower = [n for n in notes if n.pitch < GRAND_STAFF_SPLIT]
+    rh = _pitched_part("piano", upper, tr, shift, grid, ks, part_class=stream.PartStaff)
+    lh = _pitched_part("piano", lower, tr, shift, grid, ks, part_class=stream.PartStaff,
+                       clef_name="bass")
+    return [rh, lh]
+
+
 def _pitched_part(stem: str, notes: list[NoteEvent], tr: Transcription, shift: float,
-                  grid: float, ks: key.Key | None) -> stream.Part:
+                  grid: float, ks: key.Key | None, part_class=stream.Part,
+                  clef_name: str | None = None) -> stream.Part:
     settings = STEM_SETTINGS[stem]
     raw = stream.Part()
     seen: set[tuple[float, int]] = set()
@@ -88,7 +143,10 @@ def _pitched_part(stem: str, notes: list[NoteEvent], tr: Transcription, shift: f
         raw.insert(start, m21note)
 
     # 重なり合う音を縦に切りそろえて和音にする（必要な所はタイでつなぐ）
-    part = raw.chordify() if len(raw.notes) else stream.Part()
+    chordified = raw.chordify() if len(raw.notes) else stream.Part()
+    part = part_class()
+    for el in chordified.elements:
+        part.insert(el.getOffsetBySite(chordified), el)
     part.partName = settings.name
     part.partAbbreviation = settings.name[:2] + "."
     inst = instrument.Instrument()
@@ -96,7 +154,7 @@ def _pitched_part(stem: str, notes: list[NoteEvent], tr: Transcription, shift: f
     inst.partAbbreviation = settings.name[:2] + "."
     inst.midiProgram = settings.gm_program
     part.insert(0, inst)
-    part.insert(0, _clef(settings.clef))
+    part.insert(0, _clef(clef_name or settings.clef))
     if ks is not None:
         part.insert(0, key.KeySignature(ks.sharps))
     _simplify_chords(part)
@@ -193,15 +251,23 @@ def build_score(tr: Transcription, title: str, grid: float = 0.25) -> stream.Sco
         if not notes:
             continue
         if stem == "drums":
-            part = _drum_part(notes, tr, shift, grid)
+            new_parts = [_drum_part(notes, tr, shift, grid)]
+        elif stem == "piano" and _needs_grand_staff(notes):
+            new_parts = _piano_parts(notes, tr, shift, grid, ks)
+            score.insert(0, layout.StaffGroup(new_parts, name="Piano", abbreviation="Pi.",
+                                              symbol="brace"))
         else:
-            part = _pitched_part(stem, notes, tr, shift, grid, ks)
-        part.insert(0, meter.TimeSignature(f"{BEATS_PER_BAR}/4"))
-        score.insert(0, part)
+            new_parts = [_pitched_part(stem, notes, tr, shift, grid, ks)]
+        for part in new_parts:
+            part.insert(0, meter.TimeSignature(f"{BEATS_PER_BAR}/4"))
+            score.insert(0, part)
 
     parts = list(score.parts)
     if parts:
         parts[0].insert(0, m21tempo.MetronomeMark(number=round(tr.tempo)))
+        low, high = tr.grid.tempo_range
+        if high - low >= 4:  # テンポが揺れている曲は、その幅も書いておく
+            parts[0].insert(0, m21tempo.TempoText(f"(♩ = {round(low)}–{round(high)})"))
         if tr.chords and parts[0].partName != "Drums":
             _add_chord_symbols(parts[0], tr, shift, ks)
         # 全パートの長さを最後の小節線までそろえる
@@ -276,7 +342,9 @@ def write_chord_chart(tr: Transcription, path: Path) -> Path | None:
         else:
             cells.append(current)  # 前の小節と同じコードが続く
     width = max(8, max(len(c) for c in cells))
-    lines = [f"Tempo: {round(tr.tempo)} BPM   Time: {BEATS_PER_BAR}/4", ""]
+    low, high = tr.grid.tempo_range
+    tempo_text = f"{round(tr.tempo)} BPM" + (f" ({round(low)}–{round(high)})" if high - low >= 4 else "")
+    lines = [f"Tempo: {tempo_text}   Time: {BEATS_PER_BAR}/4", ""]
     for first in range(0, len(cells), 4):
         row = cells[first:first + 4]
         lines.append(f"{first + 1:>3} |" + "|".join(f" {c:<{width}} " for c in row) + "|")

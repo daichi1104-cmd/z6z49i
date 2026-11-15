@@ -8,10 +8,11 @@ import sys
 from pathlib import Path
 
 from . import score as score_mod
-from .chords import detect_chords
+from .chords import NO_CHORD, detect_chords
 from .models import STEM_SETTINGS, Transcription
 from .separate import DEFAULT_MODEL, is_silent, separate
-from .transcribe import estimate_tempo, transcribe_drums, transcribe_pitched
+from .rhythm import estimate_downbeat, track_beats
+from .transcribe import KICK, SNARE, transcribe_drums, transcribe_pitched
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -58,12 +59,14 @@ def main(argv: list[str] | None = None) -> int:
         log.info("[1/4] 楽器ごとに音を分けています（Demucs %s）…", args.model)
         stems = separate(audio, out / "stems", model=args.model, device=args.device)
 
-    # 2. テンポ推定
-    tempo, beat_offset = estimate_tempo(audio, tempo_hint=args.tempo)
-    log.info("[2/4] テンポ: %.1f BPM（最初の拍 %.2f 秒）", tempo, beat_offset)
+    # 2. 拍の推定（テンポが揺れる演奏にも合わせて、1拍ずつの時刻を求める）
+    grid = track_beats(audio, tempo_hint=args.tempo)
+    low, high = grid.tempo_range
+    log.info("[2/4] テンポ: %.1f BPM%s", grid.tempo,
+             f"（{low:.0f}〜{high:.0f} で揺れています）" if high - low >= 4 else "")
 
     # 3. 採譜
-    tr = Transcription(tempo=tempo, beat_offset=beat_offset)
+    tr = Transcription(grid=grid)
     for name, path in stems.items():
         if name not in STEM_SETTINGS or (args.only and name not in args.only):
             continue
@@ -81,14 +84,33 @@ def main(argv: list[str] | None = None) -> int:
         log.error("音符が 1つも見つかりませんでした。")
         return 1
 
+    # 3.4 採譜した音の立ち上がりに合わせて拍の格子を微調整する
+    grid.calibrate([n.start for notes in tr.parts.values() for n in notes])
+
     # 3.5 コード推定（ギター・ピアノ・ベースなど和音の楽器の音から）
     if not args.no_chords:
         # ベースは倍音が和音の判定を乱すので混ぜず、ルートの判定だけに使う
         harmonic = [p for name, p in stems.items()
                     if name in ("guitar", "piano", "other") and not is_silent(p)]
-        tr.chords = detect_chords(harmonic or [audio], tempo, beat_offset,
-                                  bass_path=stems.get("bass"), bass_notes=tr.parts.get("bass"),
-                                  beats_per_chord=args.chord_beats)
+        def chords_now(beats_per_chord: int):
+            return detect_chords(harmonic or [audio], grid, bass_path=stems.get("bass"),
+                                 bass_notes=tr.parts.get("bass"), beats_per_chord=beats_per_chord)
+
+        tr.chords = chords_now(1)
+
+    # 3.6 小節の頭を決める（コードが変わる位置・キック・スネアの 2拍4拍から）
+    drums = tr.parts.get("drums", [])
+    grid.downbeat = estimate_downbeat(
+        grid,
+        kicks=[n.start for n in drums if n.pitch == KICK],
+        snares=[n.start for n in drums if n.pitch == SNARE],
+        chord_changes=[c.start for c in tr.chords if c.quality != NO_CHORD],
+        bass_onsets=[n.start for n in tr.parts.get("bass", [])],
+    )
+    log.info("[3/4] 小節の頭: %d 拍目から数えて 4拍ごと", grid.downbeat + 1)
+    if not args.no_chords:
+        if args.chord_beats > 1:  # 小節の頭がわかってから、2拍・4拍の区切りで判定し直す
+            tr.chords = chords_now(args.chord_beats)
         flats = score_mod.chord_spelling_uses_flats(tr)
         log.info("[3/4] chords  %d 個（%s …）", len(tr.chords),
                  " ".join(c.label(flats) for c in tr.chords[:8]))

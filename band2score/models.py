@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .rhythm import BeatGrid
+
 
 @dataclass
 class NoteEvent:
@@ -62,7 +64,10 @@ PART_ORDER = ["vocals", "guitar", "piano", "other", "bass", "drums"]
 class Transcription:
     """1曲分の採譜結果。"""
 
-    tempo: float
-    beat_offset: float  # 最初の拍の位置（秒）。これを 1小節目の頭にする
+    grid: BeatGrid  # 拍の格子（秒 → 楽譜上の位置の変換に使う）
     parts: dict[str, list[NoteEvent]] = field(default_factory=dict)
     chords: list = field(default_factory=list)  # list[chords.ChordEvent]
+
+    @property
+    def tempo(self) -> float:
+        return self.grid.tempo

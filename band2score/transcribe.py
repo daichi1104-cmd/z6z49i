@@ -14,48 +14,6 @@ from .models import NoteEvent, StemSettings
 KICK, SNARE, HIHAT = 36, 38, 42
 
 
-def estimate_tempo(audio_path: Path, tempo_hint: float | None = None) -> tuple[float, float]:
-    """テンポ（BPM）と最初の拍の位置（秒）を推定する。
-
-    tempo_hint を渡すと、そのテンポで拍の位置だけを求める。
-    """
-    y, sr = librosa.load(audio_path, sr=22050, mono=True)
-    hop = 256
-    onset_env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop)
-
-    if tempo_hint:
-        tempo = float(tempo_hint)
-    else:
-        tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr,
-                                               hop_length=hop, units="time")
-        tempo = float(np.atleast_1d(tempo)[0])
-        if len(beats) >= 8:
-            # 検出した拍の位置に直線を当てはめて、テンポを細かく求める
-            period, _ = np.polyfit(np.arange(len(beats)), beats, 1)
-            tempo = 60.0 / period
-        if tempo <= 0:
-            tempo = 120.0
-        # 速すぎ・遅すぎる推定は倍テン/ハーフテンとして直す
-        while tempo < 70:
-            tempo *= 2
-        while tempo > 180:
-            tempo /= 2
-    return tempo, _beat_phase(onset_env, sr, hop, 60.0 / tempo)
-
-
-def _beat_phase(onset_env: np.ndarray, sr: int, hop: int, period: float) -> float:
-    """拍の格子（period 秒間隔）を少しずつずらし、音の立ち上がりと一番よく重なる位置を返す。"""
-    times = librosa.frames_to_time(np.arange(len(onset_env)), sr=sr, hop_length=hop)
-    best, best_score = 0.0, -1.0
-    for phase in np.arange(0.0, period, 0.005):
-        grid = np.arange(phase, times[-1], period)
-        idx = np.searchsorted(times, grid).clip(0, len(onset_env) - 1)
-        score = float(onset_env[idx].sum())
-        if score > best_score:
-            best, best_score = float(phase), score
-    return best
-
-
 def transcribe_pitched(audio_path: Path, settings: StemSettings) -> list[NoteEvent]:
     """basic-pitch でメロディ・和音のある楽器を採譜する。"""
     # basic-pitch は import 時に TensorFlow 等が無い旨の警告を出すので、その間だけ抑える
@@ -81,8 +39,38 @@ def transcribe_pitched(audio_path: Path, settings: StemSettings) -> list[NoteEve
     ]
     notes.sort(key=lambda n: (n.start, n.pitch))
     if settings.monophonic:
-        notes = make_monophonic(notes)
+        notes = merge_fragments(fix_octave_errors(make_monophonic(notes)))
+    else:
+        notes = prune_overtones(notes)
     return notes
+
+
+# 倍音の音程（半音）: 2倍音=オクターブ, 3倍音=オクターブ+5度, 4倍音=2オクターブ, 5倍音, 6倍音
+HARMONIC_INTERVALS = (12, 19, 24, 28, 31)
+
+
+def prune_overtones(notes: list[NoteEvent]) -> list[NoteEvent]:
+    """和音のパートから、倍音を拾っただけの音を除く。
+
+    ほぼ同時に始まる低い音の倍音の高さにあり、その音より明らかに弱いか短い音を捨てる。
+    （本当に弾いたオクターブは、ふつう同じくらいの強さ・長さで鳴るので残る）
+    """
+    keep = []
+    for n in notes:
+        ghost = False
+        for m in notes:
+            if m is n or n.pitch - m.pitch not in HARMONIC_INTERVALS:
+                continue
+            if abs(n.start - m.start) > 0.06:
+                continue
+            weaker = n.velocity < 0.75 * m.velocity
+            shorter = (n.end - n.start) < 0.6 * (m.end - m.start)
+            if weaker or shorter:
+                ghost = True
+                break
+        if not ghost:
+            keep.append(n)
+    return keep
 
 
 # 倍音として誤検出されやすい音程（半音数）: オクターブ、オクターブ+5度、2オクターブ
@@ -113,6 +101,61 @@ def make_monophonic(notes: list[NoteEvent]) -> list[NoteEvent]:
 
 # ドラムの帯域（Hz）: キック=低域、スネア=中域、ハイハット/シンバル=高域
 DRUM_BANDS = {KICK: (30, 150), SNARE: (180, 2500), HIHAT: (6000, 11000)}
+
+
+def merge_fragments(notes: list[NoteEvent], max_gap: float = 0.02,
+                    short: float = 0.15) -> list[NoteEvent]:
+    """1つの音が途中で切れて 2つに検出されたものをつなぐ（単音のパート用）。
+
+    同じ高さの音がすき間なく続き、どちらかがとても短いときは、同じ音が切れただけとみなす。
+    （本当に弾き直した同じ音は、ふつうわずかなすき間があり、極端に短くもない）
+    """
+    out: list[NoteEvent] = []
+    for n in notes:
+        if out:
+            prev = out[-1]
+            contiguous = prev.pitch == n.pitch and n.start - prev.end < max_gap
+            if contiguous and min(prev.end - prev.start, n.end - n.start) < short:
+                prev.end = max(prev.end, n.end)
+                prev.velocity = max(prev.velocity, n.velocity)
+                continue
+        out.append(NoteEvent(n.start, n.end, n.pitch, n.velocity))
+    return out
+
+
+def fix_octave_errors(notes: list[NoteEvent], max_run: int = 3) -> list[NoteEvent]:
+    """単音のパートで、1オクターブずれて検出された音を直す。
+
+    倍音を本来の音と取り違えると、前後から大きく（9半音以上）跳んだ、弱めの音として出てくる。
+    そういう音（数音続くこともある）を 1オクターブ動かすと前後の音に近づくなら、動かす。
+    """
+    if len(notes) < 3:
+        return notes
+    typical = float(np.median([n.velocity for n in notes]))
+    out = [NoteEvent(n.start, n.end, n.pitch, n.velocity) for n in notes]
+    # 跳躍の小さい音どうしをひとまとまり（run）にする
+    runs: list[list[int]] = [[0]]
+    for i in range(1, len(out)):
+        if abs(out[i].pitch - out[i - 1].pitch) >= 9:
+            runs.append([i])
+        else:
+            runs[-1].append(i)
+    for r, run in enumerate(runs):
+        if len(run) > max_run or len(runs) == 1:
+            continue
+        if np.mean([out[i].velocity for i in run]) > 0.8 * typical:
+            continue
+        neighbors = []
+        if r > 0:
+            neighbors.append((out[run[0]].pitch, out[runs[r - 1][-1]].pitch))
+        if r + 1 < len(runs):
+            neighbors.append((out[run[-1]].pitch, out[runs[r + 1][0]].pitch))
+        for shift in (-12, 12):
+            if all(abs(mine + shift - other) < abs(mine - other) for mine, other in neighbors):
+                for i in run:
+                    out[i].pitch += shift
+                break
+    return out
 
 
 def transcribe_drums(audio_path: Path) -> list[NoteEvent]:
