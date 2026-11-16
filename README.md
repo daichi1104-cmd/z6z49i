@@ -100,8 +100,16 @@ docker build -t band2score .
 docker run -p 7860:7860 -e BAND2SCORE_PASSWORD=好きな合言葉 band2score
 ```
 
-[Hugging Face Spaces](https://huggingface.co/spaces) の「Docker」タイプにこのリポジトリを置くと、無料の CPU サーバーで動きます
-（3〜4分の曲で 5〜10分ほどかかります）。
+[Hugging Face Spaces](https://huggingface.co/spaces) の無料の CPU サーバーで動かせます（3〜4分の曲で 5〜10分ほどかかります）。
+Hugging Face の「Write」権限のトークンを用意して、次を実行すると Space が作られます。
+
+```bash
+pip install huggingface_hub
+HF_TOKEN=hf_xxx python deploy/huggingface.py あなたのユーザー名/band2score
+```
+
+10〜20分ほどでビルドが終わり、`https://あなたのユーザー名-band2score.hf.space` で使えるようになります。
+無料の Space は 48時間使わないと休止し、次に開いたときに 1分ほどで起き上がります。
 
 **ネットに公開するときは、必ず `BAND2SCORE_PASSWORD` を設定してください。** 設定しないと、URL を知っている人なら誰でも使えてしまいます。
 

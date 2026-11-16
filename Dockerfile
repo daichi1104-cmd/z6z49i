@@ -21,6 +21,7 @@ RUN python -c "from demucs.pretrained import get_model; get_model('htdemucs_6s')
 COPY band2score ./band2score
 RUN useradd -m app && mkdir -p /data && chown -R app /data /app/models
 USER app
-ENV BAND2SCORE_DATA=/data PORT=7860
+# librosa（numba）のキャッシュを書き込める場所に置く（root 以外で動かすため）
+ENV BAND2SCORE_DATA=/data PORT=7860 NUMBA_CACHE_DIR=/tmp/numba_cache
 EXPOSE 7860
 CMD ["sh", "-c", "python -m band2score.web --port ${PORT}"]
