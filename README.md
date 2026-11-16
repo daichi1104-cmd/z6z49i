@@ -108,8 +108,9 @@ docker run -p 7860:7860 -e BAND2SCORE_PASSWORD=好きな合言葉 band2score
    「Create new token」で、種類を **Write** にしてトークンを作る
 2. この GitHub リポジトリの Settings → Secrets and variables → Actions →
    「New repository secret」で、名前 `HF_TOKEN`、値に 1 のトークンを貼って保存する
-3. Actions タブ →「Deploy to Hugging Face Spaces」→「Run workflow」で実行する
-   （以後は、プログラムを更新するたびに自動で Space も更新されます）
+3. Actions タブ →「Deploy to Hugging Face Spaces」の一番上の実行を開き、右上の「Re-run all jobs」を押す
+   （main ブランチに取り込んだあとは「Run workflow」ボタンからも実行できます。
+   以後は、プログラムを更新するたびに自動で Space も更新されます）
 4. Hugging Face の Space（`あなたのユーザー名/band2score`）の Settings → Variables and secrets →
    「New secret」で、名前 `BAND2SCORE_PASSWORD`、値を好きなパスワードにして保存する
 
