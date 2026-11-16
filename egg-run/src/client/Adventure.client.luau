@@ -138,6 +138,10 @@ local function chipLines(): { string }
 	elseif typeof(bossNext) == "number" and bossNext > t then
 		table.insert(lines, string.format("👑 みんなのボスまで あと %s", clock(bossNext - t)))
 	end
+	local gift = player:GetAttribute("PlaytimeNext")
+	if typeof(gift) == "number" and gift > t then
+		table.insert(lines, string.format("🎁 つぎのプレゼントまで あと %s", clock(gift - t)))
+	end
 	local friend = workspace:GetAttribute("FriendBoost")
 	if typeof(friend) == "number" and friend > 1 then
 		table.insert(

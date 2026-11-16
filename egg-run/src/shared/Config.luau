@@ -543,6 +543,18 @@ function Config.friendBoost(playerCount: number): number
 	return 1 + others * Config.FriendBoost.per
 end
 
+-- プレイ時間プレゼント：入ってから at 秒 遊ぶと、自動でもらえる（入り直すと はじめから）
+-- coins：その人の「基本」（Progress.rewardBase）の何倍か。egg：ふしぎなたまごつき
+-- favorite：このときに「お気に入りに入れる？」を 1回だけ聞く
+Config.Playtime = {
+	{ at = 180, coins = 2 },
+	{ at = 600, coins = 4, egg = true, favorite = true },
+	{ at = 1200, coins = 8 },
+	{ at = 1800, coins = 12, egg = true },
+	{ at = 2700, coins = 20 },
+	{ at = 3600, coins = 30, egg = true },
+}
+
 -- ランキングの看板（ベースのうしろ）：every 秒ごとに 書きかえる。全部のサーバーを合わせた 上位 top 人
 -- stat：くらべる数字（rebirths / towerBest / eggs / worldBoss）
 Config.Ranking = {

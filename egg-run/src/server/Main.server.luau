@@ -45,6 +45,7 @@ local weaponAction = remote("RemoteFunction", "WeaponAction") :: RemoteFunction
 local armorAction = remote("RemoteFunction", "ArmorAction") :: RemoteFunction
 local screenFx = remote("RemoteEvent", "ScreenFx") :: RemoteEvent
 local rebirthAction = remote("RemoteFunction", "Rebirth") :: RemoteFunction
+local askFavorite = remote("RemoteEvent", "AskFavorite") :: RemoteEvent
 Weapons.setScreenFx(screenFx)
 
 -- DataStore は Studio で API アクセスが無効だと失敗するので pcall で守る
@@ -2025,6 +2026,98 @@ Players.PlayerRemoving:Connect(function()
 	task.defer(friendBoostChanged)
 end)
 friendBoostChanged()
+
+-- プレイ時間プレゼント：遊んだ時間で 自動でもらえる
+local joinedAt: { [Player]: number } = {}
+local playStep: { [Player]: number } = {}
+task.spawn(function()
+	while true do
+		task.wait(1)
+		for _, player in Players:GetPlayers() do
+			local d = data[player]
+			if not d then
+				continue
+			end
+			if not joinedAt[player] then
+				joinedAt[player] = os.time()
+				playStep[player] = 1
+			end
+			local gift = Config.Playtime[playStep[player]]
+			if not gift then
+				player:SetAttribute("PlaytimeNext", 0)
+				continue
+			end
+			player:SetAttribute("PlaytimeNext", joinedAt[player] + gift.at)
+			if os.time() - joinedAt[player] < gift.at then
+				continue
+			end
+			playStep[player] += 1
+			local coins = math.floor(Progress.rewardBase(d) * gift.coins)
+			d.coins += coins
+			local extra = ""
+			if gift.egg then
+				local dragon = Dragons.find((mysteryHatch(player)))
+				extra = string.format(" と %s", if dragon then dragon.name else "ドラゴン")
+			end
+			notify:FireClient(
+				player,
+				string.format("🎉 %d分 遊んだプレゼント！ +%d コイン%s", gift.at // 60, coins, extra),
+				true
+			)
+			if gift.favorite and not d.stats.askedFavorite then
+				d.stats.askedFavorite = 1
+				askFavorite:FireClient(player)
+			end
+			checkProgress(player)
+			syncStats(player)
+			save(player)
+		end
+	end
+end)
+Players.PlayerRemoving:Connect(function(player)
+	joinedAt[player] = nil
+	playStep[player] = nil
+end)
+
+-- 頭の上の称号：転生のよび名と 塔の記録を、ほかの人にも見えるように出す
+local function showTitle(player: Player)
+	local d = data[player]
+	local head = player.Character and player.Character:FindFirstChild("Head")
+	if not d or not head then
+		return
+	end
+	local bb = head:FindFirstChild("TitleTag") :: BillboardGui?
+	if not bb then
+		bb = Instance.new("BillboardGui")
+		bb.Name = "TitleTag"
+		bb.Size = UDim2.new(9, 0, 1.1, 0)
+		bb.StudsOffset = Vector3.new(0, 3.4, 0)
+		bb.MaxDistance = 90
+		bb.LightInfluence = 0
+		local label = Instance.new("TextLabel")
+		label.Name = "Text"
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.GothamBlack
+		label.TextScaled = true
+		label.TextStrokeTransparency = 0.2
+		label.Parent = bb
+		bb.Parent = head
+	end
+	local label = bb:FindFirstChild("Text") :: TextLabel
+	local tower = d.stats.towerBest or 0
+	label.Text = string.format("🌟 %s", Config.rebirthTitle(d.rebirths))
+		.. (if tower > 0 then string.format("　🗼 %d階", tower) else "")
+	label.TextColor3 = if d.rebirths > 0 then Color3.fromRGB(255, 215, 90) else Color3.new(1, 1, 1)
+end
+task.spawn(function()
+	while true do
+		for _, player in Players:GetPlayers() do
+			showTitle(player)
+		end
+		task.wait(3)
+	end
+end)
 
 Ranking.init(function(player: Player, key: string): number?
 	local d = data[player]
