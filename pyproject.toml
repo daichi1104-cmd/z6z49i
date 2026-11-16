@@ -11,9 +11,16 @@ requires-python = ">=3.10"
 
 [project.scripts]
 band2score = "band2score.cli:main"
+band2score-web = "band2score.web.__main__:main"
+
+[project.optional-dependencies]
+web = ["fastapi", "uvicorn", "python-multipart", "verovio", "qrcode"]
 
 [tool.setuptools]
-packages = ["band2score"]
+packages = ["band2score", "band2score.web"]
+
+[tool.setuptools.package-data]
+"band2score.web" = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

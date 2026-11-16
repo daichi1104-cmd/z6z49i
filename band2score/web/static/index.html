@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>band2score</title>
+  <meta name="description" content="バンドの音源から楽器ごとの楽譜を自動で作ります">
+  <meta name="theme-color" content="#1d4ed8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="band2score">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" id="home-link" type="button" aria-label="最初の画面へ">
+      <img src="/static/icon-192.png" alt="" width="28" height="28">
+      <span>band2score</span>
+    </button>
+  </header>
+
+  <main>
+    <!-- パスワード -->
+    <section id="view-login" class="view" hidden>
+      <div class="card">
+        <h1>パスワード</h1>
+        <p class="muted">このサーバーはパスワードで守られています。</p>
+        <form id="login-form" class="stack">
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="パスワード" required>
+          <button class="btn primary" type="submit">はじめる</button>
+          <p class="error" id="login-error" hidden></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- 最初の画面 -->
+    <section id="view-home" class="view" hidden>
+      <h1 class="lead">バンドの音源から<br>楽器ごとの楽譜を作ります</h1>
+
+      <form id="upload-form" class="stack">
+        <label class="drop" id="drop">
+          <input id="file" type="file" accept="audio/*,.m4a,.mp3,.wav,.flac,.aac,.ogg,.caf,.mp4,.mov" hidden>
+          <span class="drop-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="36" height="36"><path fill="currentColor" d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
+          </span>
+          <span class="drop-title" id="file-label">音源を選ぶ</span>
+          <span class="drop-sub" id="file-sub">mp3・m4a（ボイスメモ）・wav など</span>
+        </label>
+
+        <details class="card options">
+          <summary>設定（そのままでも大丈夫です）</summary>
+          <div class="stack">
+            <label class="field">
+              <span>曲名</span>
+              <input id="opt-title" type="text" placeholder="ファイル名を使います" maxlength="80">
+            </label>
+            <fieldset class="field">
+              <legend>楽譜にするパート</legend>
+              <div class="chips" id="opt-parts"></div>
+            </fieldset>
+            <label class="switch">
+              <input id="opt-chords" type="checkbox" checked>
+              <span>コードネームを付ける</span>
+            </label>
+            <div class="row">
+              <label class="field">
+                <span>テンポ（BPM）</span>
+                <input id="opt-tempo" type="number" inputmode="decimal" min="30" max="300" placeholder="自動">
+              </label>
+              <label class="field">
+                <span>リズムの細かさ</span>
+                <select id="opt-grid">
+                  <option value="16">16分音符</option>
+                  <option value="8">8分音符（簡単な楽譜）</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <button class="btn primary big" id="submit" type="submit" disabled>楽譜にする</button>
+        <p class="error" id="upload-error" hidden></p>
+      </form>
+
+      <section class="history" id="history" hidden>
+        <h2>これまでの楽譜</h2>
+        <ul id="history-list"></ul>
+      </section>
+    </section>
+
+    <!-- 処理中 -->
+    <section id="view-progress" class="view" hidden>
+      <div class="card">
+        <h1 id="progress-title">変換しています</h1>
+        <div class="bar" aria-hidden="true"><div class="bar-fill" id="progress-bar"></div></div>
+        <p class="status" id="progress-message" role="status" aria-live="polite">送信しています…</p>
+        <ol class="steps" id="steps">
+          <li>楽器ごとに音を分ける</li>
+          <li>テンポと拍を調べる</li>
+          <li>音符にする</li>
+          <li>コードと小節を調べる</li>
+          <li>楽譜を作る</li>
+        </ol>
+        <p class="muted small" id="progress-note">3〜4分の曲で数分かかります。この画面を閉じても処理は続き、あとで「これまでの楽譜」から開けます。</p>
+      </div>
+    </section>
+
+    <!-- 結果 -->
+    <section id="view-result" class="view" hidden>
+      <div class="result-head">
+        <h1 id="result-title"></h1>
+        <div class="meta" id="result-meta"></div>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button role="tab" class="tab" data-tab="score" aria-selected="true">楽譜</button>
+        <button role="tab" class="tab" data-tab="chords" aria-selected="false">コード</button>
+        <button role="tab" class="tab" data-tab="save" aria-selected="false">保存</button>
+      </nav>
+
+      <div class="tabpanel" id="tab-score">
+        <div class="score-tools">
+          <div class="chips scroll" id="view-parts"></div>
+          <div class="zoom">
+            <button class="btn icon" id="zoom-out" type="button" aria-label="小さく">−</button>
+            <button class="btn icon" id="zoom-in" type="button" aria-label="大きく">＋</button>
+          </div>
+        </div>
+        <div class="score" id="score"></div>
+        <p class="muted small center" id="score-status"></p>
+      </div>
+
+      <div class="tabpanel" id="tab-chords" hidden>
+        <div class="chord-grid" id="chord-grid"></div>
+        <p class="muted small center" id="chords-empty" hidden>コードはありません。</p>
+      </div>
+
+      <div class="tabpanel" id="tab-save" hidden>
+        <div class="stack" id="downloads"></div>
+        <p class="muted small">MusicXML は MuseScore（無料アプリ）で開くと、表示・編集・印刷ができます。</p>
+      </div>
+
+      <button class="btn ghost wide" id="again" type="button">別の曲を楽譜にする</button>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

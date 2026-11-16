@@ -15,3 +15,9 @@ resampy
 music21>=9
 # basic-pitch 本体は依存関係が古い（numpy<1.24 など）ため、別に --no-deps で入れる:
 #   pip install --no-deps basic-pitch
+# Web アプリ（スマホから使う）
+fastapi
+uvicorn
+python-multipart
+verovio
+qrcode

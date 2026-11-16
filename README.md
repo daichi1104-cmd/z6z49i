@@ -61,6 +61,57 @@ python -m band2score song.mp3
 | `--no-chords` | コードネームを付けない |
 | `--chord-beats 2` | コードを 2拍ごとに判定する（コードが細かく変わりすぎるときは 2 や 4 に） |
 
+## スマホで使う
+
+AI の処理が重いので、変換は PC（またはクラウドのサーバー）で行い、スマホのブラウザから
+音源を送って楽譜を見る形です。アプリのインストールは不要で、ホーム画面に追加すればアプリのように使えます。
+
+<p>
+<img src="docs/phone_home.png" width="200" alt="音源を選ぶ画面">
+<img src="docs/phone_score.png" width="200" alt="楽譜の画面">
+<img src="docs/phone_chords.png" width="200" alt="コード表の画面">
+</p>
+
+### 自宅の PC で動かす（同じ Wi-Fi のスマホから使う）
+
+```bash
+python -m band2score.web
+```
+
+表示された URL（`http://192.168.x.x:8000` のような形）をスマホのブラウザで開くか、
+表示される QR コードをスマホのカメラで読み取ってください。PC とスマホが同じ Wi-Fi につながっている必要があります。
+
+- **iPhone**: Safari で開き、共有ボタン →「ホーム画面に追加」
+- **Android**: Chrome で開き、メニュー（︙）→「ホーム画面に追加」
+
+できること:
+- 音源を選ぶ（ボイスメモの m4a、mp3、wav など。スマホで録った練習の録音もそのまま使えます）
+- 進み具合を見る（画面を閉じても処理は続き、「これまでの楽譜」から開き直せます）
+- 楽譜を見る（パートを選んで表示・拡大縮小。ベースだけ表示してもコードネームは付きます）
+- 小節ごとのコード表を見る
+- MusicXML・MIDI・コード表を保存する（MusicXML は MuseScore アプリで開けます）
+
+### 外出先からも使う（クラウドに置く）
+
+`Dockerfile` があるので、Docker が動くサーバーならどこでも動かせます。
+
+```bash
+docker build -t band2score .
+docker run -p 7860:7860 -e BAND2SCORE_PASSWORD=好きな合言葉 band2score
+```
+
+[Hugging Face Spaces](https://huggingface.co/spaces) の「Docker」タイプにこのリポジトリを置くと、無料の CPU サーバーで動きます
+（3〜4分の曲で 5〜10分ほどかかります）。
+
+**ネットに公開するときは、必ず `BAND2SCORE_PASSWORD` を設定してください。** 設定しないと、URL を知っている人なら誰でも使えてしまいます。
+
+| 環境変数 | 内容 |
+|---|---|
+| `BAND2SCORE_PASSWORD` | 使う前に求めるパスワード |
+| `BAND2SCORE_MAX_MB` | アップロードできる大きさの上限（MB、既定 100） |
+| `BAND2SCORE_KEEP_HOURS` | 結果を残しておく時間（既定 24 時間。過ぎると自動で消えます） |
+| `BAND2SCORE_DATA` | 作業データを置くフォルダ |
+
 ## コードネーム
 
 楽譜の一番上のパートの上に、`Cmaj7`・`Am`・`Eb/G` のようなコードネームが付きます。
@@ -152,6 +203,8 @@ band2score/
   chords.py      コード推定
   score.py       楽譜（MusicXML）と MIDI の生成
   models.py      データ型と楽器ごとの設定
+  pipeline.py    処理の流れ（コマンドと Web アプリで共通）
+  web/           スマホ用の Web アプリ（server.py・static/ の画面）
 tests/
   make_test_song.py  テスト音源の生成（テンポの揺れ・弱起つき）
   benchmark.py       条件ごとの精度の測定
@@ -159,4 +212,5 @@ tests/
   test_chords.py     テスト（コード推定・コード表示）
   test_rhythm.py     テスト（拍の格子・小節の頭）
   test_end_to_end.py テスト（いちばん難しい条件で分離以降を通す）
+  test_web.py        テスト（Web アプリの API）
 ```

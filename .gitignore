@@ -6,3 +6,4 @@ output/
 test_data/
 *.egg-info/
 .pytest_cache/
+web_data/
