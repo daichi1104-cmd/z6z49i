@@ -165,11 +165,17 @@ class JobManager:
 
 def create_app(data_dir: Path | None = None, password: str | None = None,
                max_mb: float | None = None, keep_hours: float | None = None,
-               test_stems: Path | None = None) -> FastAPI:
+               test_stems: Path | None = None, require_password: bool | None = None) -> FastAPI:
+    """require_password: True ならパスワード未設定のとき使えなくする。
+    省略時は、ネットに公開される場所（Hugging Face Spaces など、環境変数 SPACE_ID や
+    BAND2SCORE_REQUIRE_PASSWORD がある）で True になる。"""
     data_dir = data_dir or Path(os.environ.get("BAND2SCORE_DATA", "web_data"))
     password = password if password is not None else os.environ.get("BAND2SCORE_PASSWORD") or None
     max_mb = max_mb or float(os.environ.get("BAND2SCORE_MAX_MB", "100"))
     keep_hours = keep_hours or float(os.environ.get("BAND2SCORE_KEEP_HOURS", "24"))
+    if require_password is None:
+        require_password = bool(os.environ.get("SPACE_ID") or os.environ.get("BAND2SCORE_REQUIRE_PASSWORD"))
+    locked = require_password and not password  # 公開されているのにパスワードが無い
     if test_stems is None and os.environ.get("BAND2SCORE_TEST_STEMS"):
         test_stems = Path(os.environ["BAND2SCORE_TEST_STEMS"])
 
@@ -183,9 +189,11 @@ def create_app(data_dir: Path | None = None, password: str | None = None,
         return not password or hmac.compare_digest(request.cookies.get(COOKIE, ""), token)
 
     @app.middleware("http")
-    async def require_password(request: Request, call_next):
+    async def check_password(request: Request, call_next):
         path = request.url.path
         open_paths = ("/api/config", "/api/login")
+        if locked and path.startswith("/api/") and path != "/api/config":
+            return JSONResponse({"detail": "パスワードが設定されていないため使えません"}, status_code=503)
         if path.startswith("/api/") and path not in open_paths and not authed(request):
             return JSONResponse({"detail": "パスワードが必要です"}, status_code=401)
         return await call_next(request)
@@ -208,6 +216,7 @@ def create_app(data_dir: Path | None = None, password: str | None = None,
     @app.get("/api/config")
     def config(request: Request):
         return {
+            "locked": locked,
             "password_required": bool(password),
             "authed": authed(request),
             "max_mb": max_mb,

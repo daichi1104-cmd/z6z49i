@@ -2,7 +2,7 @@
 // band2score スマホ用画面。画面の切り替えは URL の # で行う（#/job/<id>）。
 
 const $ = (id) => document.getElementById(id);
-const views = ["login", "home", "progress", "result"];
+const views = ["locked", "login", "home", "progress", "result"];
 const state = { config: null, file: null, job: null, poll: null, zoom: 100, parts: null };
 
 const store = {
@@ -35,6 +35,7 @@ async function boot() {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   state.config = await (await fetch("/api/config")).json();
   buildPartOptions();
+  if (state.config.locked) { show("locked"); return; }
   if (state.config.password_required && !state.config.authed) { show("login"); return; }
   route();
 }

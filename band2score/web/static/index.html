@@ -25,6 +25,18 @@
   </header>
 
   <main>
+    <!-- 公開されているのにパスワードが無い -->
+    <section id="view-locked" class="view" hidden>
+      <div class="card">
+        <h1>パスワードを設定してください</h1>
+        <p>このアプリはインターネットに公開されていますが、まだパスワードが設定されていません。
+          知らない人に使われないよう、設定するまで使えないようにしています。</p>
+        <p class="muted small">Hugging Face の場合: Space の Settings → Variables and secrets →
+          New secret で、名前を <b>BAND2SCORE_PASSWORD</b>、値を好きなパスワードにして保存してください。
+          自動で再起動し、使えるようになります。</p>
+      </div>
+    </section>
+
     <!-- パスワード -->
     <section id="view-login" class="view" hidden>
       <div class="card">

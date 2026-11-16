@@ -55,12 +55,15 @@ def stage(dest: Path, github: str) -> list[str]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("space", help="Space の名前（ユーザー名/スペース名）")
+    p.add_argument("space", nargs="?", default=None,
+                   help="Space の名前（ユーザー名/スペース名）。省略するとトークンの持ち主/band2score")
     p.add_argument("--github", default="daichi1104-cmd/z6z49i", help="README に載せるソースの場所")
     p.add_argument("--private", action="store_true", help="非公開の Space にする（作るときだけ有効）")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
 
+    if a.dry_run and not a.space:
+        a.space = "you/band2score"
     with tempfile.TemporaryDirectory() as tmp:
         files = stage(Path(tmp), a.github)
         print(f"{len(files)} 個のファイルを置きます:")
@@ -72,6 +75,9 @@ def main() -> int:
         from huggingface_hub import HfApi
 
         api = HfApi(token=os.environ.get("HF_TOKEN"))
+        if not a.space:
+            a.space = f"{api.whoami()['name']}/band2score"
+        print(f"Space: {a.space}")
         api.create_repo(a.space, repo_type="space", space_sdk="docker", private=a.private,
                         exist_ok=True)
         api.upload_folder(repo_id=a.space, repo_type="space", folder_path=tmp,

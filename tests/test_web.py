@@ -75,3 +75,13 @@ def test_password(tmp_path: Path, song: Path):
     assert client.post("/api/login", json={"password": "wrong"}).status_code == 403
     assert client.post("/api/login", json={"password": "secret"}).status_code == 200
     assert client.get("/api/jobs/abc").status_code == 404  # ログイン後は通る（ジョブが無いだけ）
+
+
+def test_locked_when_public_without_password(tmp_path: Path, song: Path):
+    client = _client(tmp_path, song, require_password=True)
+    assert client.get("/api/config").json()["locked"]
+    assert client.get("/api/jobs/abc").status_code == 503
+    res = client.post("/api/jobs", files={"audio": ("a.wav", b"0", "audio/wav")})
+    assert res.status_code == 503
+    ok = _client(tmp_path / "b", song, require_password=True, password="pw")
+    assert not ok.get("/api/config").json()["locked"]

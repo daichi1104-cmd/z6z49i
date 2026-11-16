@@ -101,7 +101,21 @@ docker run -p 7860:7860 -e BAND2SCORE_PASSWORD=好きな合言葉 band2score
 ```
 
 [Hugging Face Spaces](https://huggingface.co/spaces) の無料の CPU サーバーで動かせます（3〜4分の曲で 5〜10分ほどかかります）。
-Hugging Face の「Write」権限のトークンを用意して、次を実行すると Space が作られます。
+
+**PC を使わずに置く（スマホのブラウザだけでできます）**
+
+1. [huggingface.co](https://huggingface.co) でアカウントを作り、Settings → Access Tokens →
+   「Create new token」で、種類を **Write** にしてトークンを作る
+2. この GitHub リポジトリの Settings → Secrets and variables → Actions →
+   「New repository secret」で、名前 `HF_TOKEN`、値に 1 のトークンを貼って保存する
+3. Actions タブ →「Deploy to Hugging Face Spaces」→「Run workflow」で実行する
+   （以後は、プログラムを更新するたびに自動で Space も更新されます）
+4. Hugging Face の Space（`あなたのユーザー名/band2score`）の Settings → Variables and secrets →
+   「New secret」で、名前 `BAND2SCORE_PASSWORD`、値を好きなパスワードにして保存する
+
+パスワードを設定するまでは、アプリは「パスワードを設定してください」と表示して使えないようになっています。
+
+**PC から置く場合**は、Write 権限のトークンを用意して次を実行します。
 
 ```bash
 pip install huggingface_hub

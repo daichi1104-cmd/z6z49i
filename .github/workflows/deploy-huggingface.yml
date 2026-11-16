@@ -1,0 +1,49 @@
+# band2score を Hugging Face Spaces に置く（更新する）。
+# リポジトリの Settings → Secrets and variables → Actions に HF_TOKEN（Write 権限の
+# Hugging Face トークン）を登録すると動きます。登録されていなければ何もしません。
+name: Deploy to Hugging Face Spaces
+
+on:
+  push:
+    branches: [main, ccr-f8916d56-jny3h7]
+    paths:
+      - "band2score/**"
+      - "Dockerfile"
+      - "requirements.txt"
+      - "deploy/**"
+      - ".github/workflows/deploy-huggingface.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-huggingface
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check token
+        id: token
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "HF_TOKEN が登録されていないので、デプロイは行いません。"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.token.outputs.ok == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.token.outputs.ok == 'true'
+        with:
+          python-version: "3.11"
+      - name: Upload to Hugging Face
+        if: steps.token.outputs.ok == 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+        run: |
+          pip install --quiet huggingface_hub
+          python deploy/huggingface.py ${HF_SPACE:+"$HF_SPACE"} --github "${{ github.repository }}"
