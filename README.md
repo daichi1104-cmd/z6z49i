@@ -28,6 +28,8 @@ python3 build.py   # → build/book.pdf
 
 表紙は `node tools/gen_cover.js` で `build/cover.jpg`（KDP 推奨の縦2560×横1600 px）を作ります（Playwright と Chromium を使用）。書名・副題・著者名はスクリプト冒頭の `COVER` で指定します。
 
+Kindle 用の EPUB は `python3 tools/make_epub.py` で `build/book.epub` を作ります（book.pdf と cover.jpg が必要）。作り方と確認手順は [KINDLE.md](KINDLE.md)。
+
 第9章（練習曲）は `python3 tools/gen_etudes.py` で生成する（音は実音で入力し、弦の割り当てと押さえられるかを自動で検査）。
 
 記譜は実音の 1オクターブ上。`\1`〜`\6` は弦番号（①=C弦 … ⑥=B弦）。

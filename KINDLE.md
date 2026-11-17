@@ -37,18 +37,30 @@ build/book.pdf（A5判、組版済み）
 | 元の解像度 | `<meta name="original-resolution" content="幅x高さ"/>`（必須。ページ画像と同じ縦横比にする） |
 | 向き | `<meta name="orientation-lock" content="portrait"/>`（推奨） |
 | ページ送り | 左から右（横書きの本）。`primary-writing-mode` は指定しない（既定値が horizontal-lr） |
-| ページ画像 | JPEG。2倍に拡大してもぼやけない解像度にする。A5 の縦横比（1:1.414）で **1768×2500 px** 程度にする予定 |
+| ページ画像 | JPEG。2倍に拡大してもぼやけない解像度にする。A5 の縦横比で **1762×2500 px**、画質88（1ページ300KB前後、全体で約27MB） |
 | 目次 | EPUB の nav（目次）に、章と節へのリンクを入れる。Kindle のメニューの「目次」から各章へ飛べるようにする |
 | リンク | 入れ子になったリンク（`<a>` の中の `<a>`）は禁止（販売停止の対象になる） |
 
 画面との相性：Kindle のガイドラインは 1920×1200（縦横比1.6）の画面を基準にしています。A5 は縦横比が 1.414 なので、端末によっては上下に余白が出ます。固定レイアウトでは普通のことで、問題ありません。
+
+### EPUB の作り方
+
+```sh
+python3 build.py            # → build/book.pdf
+node tools/gen_cover.js     # → build/cover.jpg
+python3 tools/make_epub.py  # → build/book.epub
+```
+
+- `tools/make_epub.py` は、PDF の各ページを JPEG にし、1ページ＝1つの XHTML に置いて EPUB にまとめます。先頭には表紙のページが入ります。
+- 目次（Kindle のメニューに出る目次）は、PDF のしおりから章と節を取って作ります。「はじめに」の小見出しは載せず、最後に「奥付」を加えます。
+- 書名・著者名（EPUB のメタデータ）は、スクリプト冒頭の `META` で指定します。
 
 ## 3. 確認の手順
 
 ### 3-1. 準備（著者のパソコンで行う）
 
 1. **Kindle Previewer 4** を Amazon の公式サイトからダウンロードして入れる（Windows と Mac に対応）。
-2. このリポジトリの最新版から、`build/book.epub`（次の作業で作る）と `build/cover.jpg` を取り出す。
+2. このリポジトリの最新版から、`build/book.epub` と `build/cover.jpg` を取り出す。
 
 ### 3-2. Kindle Previewer 4 で開く
 

@@ -2,3 +2,4 @@ build/*
 !build/book.pdf
 __pycache__/
 !build/cover.jpg
+!build/book.epub
