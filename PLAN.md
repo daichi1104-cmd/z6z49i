@@ -1,7 +1,7 @@
 # 6弦ベースのためのジャズ理論（仮題）— 企画メモ
 
 - 対象：中級〜上級（ジャズの基礎用語は知っている／指板上の実装で伸び悩んでいる 6弦ベーシスト）
-- 形式：Kindle 電子書籍（固定レイアウト：Kindle Create の Print Replica、A5 判 PDF から作成）
+- 形式：Kindle 電子書籍（固定レイアウト EPUB。A5 判 PDF の各ページを画像にして作る。日本語は Kindle Create の Print Replica 非対応のため → KINDLE.md）
 - 譜例：五線譜が中心。弦番号（①〜⑥）で 6弦上の位置を指定。TAB は使わない
 - 執筆：章ごとに共同。Claude が下書きと譜例を作り、著者が演奏経験をもとに加筆・修正する
 - チューニング：B-E-A-D-G-C（⑥=B … ①=C）／記譜は実音の 1オクターブ上
@@ -39,4 +39,6 @@
 - [x] 奥付 v1：`chapters/99-colophon.md`
 - [ ] 〔仮〕の箇所を埋める（書名・副題・著者名・はじめにのエピソードと結び・発行日・連絡先・AI使用の文言）→ `grep -rn 〔仮〕 chapters/`
 - [x] 表紙画像 v1：`node tools/gen_cover.js` → `build/cover.jpg`（2560×1600 px、RGB、JPEG）。書名・著者名はスクリプト冒頭の COVER を書き換える
-- [ ] Kindle Create（Print Replica）での変換と表示確認
+- [x] Kindle 版の作り方と確認手順を調べた → KINDLE.md（日本語は Print Replica 非対応のため、画像ベースの固定レイアウト EPUB を作って直接入稿する方針に変更）
+- [ ] 固定レイアウト EPUB を作るスクリプト（PDF → ページ画像 → EPUB）
+- [ ] Kindle Previewer 4 での確認（著者のパソコンで、KINDLE.md のチェックリストに沿って行う）
