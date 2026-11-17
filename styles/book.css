@@ -22,3 +22,5 @@ th { background: #eee; font-family: "IPAGothic"; }
 blockquote { margin: 1em 0; padding: .6em 1em; border-left: 3pt solid #555; background: #f4f4f4; font-size: 9pt; }
 code { font-family: "IPAGothic"; font-size: 9pt; }
 strong { font-family: "IPAGothic"; font-weight: normal; }
+tr { break-inside: avoid; page-break-inside: avoid; }
+thead { display: table-header-group; }
