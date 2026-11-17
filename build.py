@@ -34,6 +34,29 @@ def process(md):
         return f"![{cap}]({svg.relative_to(BUILD)})"
     return BLOCK.sub(sub, md)
 
+HEAD = re.compile(r'<h([12])([^>]*)>(.*?)</h\1>', re.S)
+
+def make_toc(html):
+    """h1（章）と h2（節）から目次を作り、.toc-placeholder の位置に差し込む。
+    ページ番号は WeasyPrint の target-counter で組版時に入る。"""
+    items, in_front = [], False
+    for m in HEAD.finditer(html):
+        level, attrs, text = m.groups()
+        hid = re.search(r'id="([^"]+)"', attrs)
+        if not hid:
+            continue
+        if level == "1":
+            in_front = 'class="front"' in attrs
+        elif in_front:
+            continue                      # 「はじめに」の小見出しは載せない
+        text = re.sub(r'<[^>]+>', '', text)
+        items.append(f'<li class="toc{level}"><a href="#{hid.group(1)}">{text}</a></li>')
+    toc = '<h1 id="toc" class="front toc-title">目次</h1>\n<ul class="toc">\n' + "\n".join(items) + "\n</ul>"
+    out, n = re.subn(r'<div class="toc-placeholder">\s*</div>', toc, html)
+    if n != 1:
+        sys.exit("目次の差し込み位置（.toc-placeholder）が見つかりません")
+    return out
+
 def main():
     chapters = sorted((ROOT / "chapters").glob("*.md"))
     md = "\n\n".join(process(p.read_text()) for p in chapters)
@@ -41,6 +64,8 @@ def main():
     subprocess.run(["pandoc", "book.md", "-f", "markdown", "-t", "html5", "-s",
                     "--metadata", "pagetitle=6弦ベースのためのジャズ理論", "--metadata", "lang=ja",
                     "-c", "../styles/book.css", "-o", "book.html"], cwd=BUILD, check=True)
+    html = BUILD / "book.html"
+    html.write_text(make_toc(html.read_text()))
     from weasyprint import HTML
     HTML(BUILD / "book.html").write_pdf(BUILD / "book.pdf")
     print("built:", BUILD / "book.pdf")

@@ -35,3 +35,8 @@
 - [x] 第8章 下書き v1
 - [x] 第9章 練習曲8曲 v1（tools/gen_etudes.py で生成）
 - [x] 付録（音名の表記・スケール一覧と運指・用語集、tools/gen_appendix.py で生成）
+- [x] 前付け（扉・はじめに・目次）v1：`chapters/00-front.md`。目次は build.py が h1/h2 から自動生成し、ページ番号は組版時に入る
+- [x] 奥付 v1：`chapters/99-colophon.md`
+- [ ] 〔仮〕の箇所を埋める（書名・副題・著者名・はじめにのエピソードと結び・発行日・連絡先・AI使用の文言）→ `grep -rn 〔仮〕 chapters/`
+- [ ] 表紙画像（KDP仕様）
+- [ ] Kindle Create（Print Replica）での変換と表示確認

@@ -7,7 +7,7 @@
 html { font-family: "IPAMincho", serif; font-size: 10pt; line-height: 1.75; color: #111; }
 body { margin: 0; }
 h1, h2, h3, h4 { font-family: "IPAGothic", sans-serif; line-height: 1.4; page-break-after: avoid; }
-h1 { font-size: 17pt; margin: 0 0 1.2em; padding-bottom: .4em; border-bottom: 1.5pt solid #111; page-break-before: always; }
+h1 { font-size: 15pt; margin: 0 0 1.2em; padding-bottom: .4em; border-bottom: 1.5pt solid #111; page-break-before: always; }
 h1:first-of-type { page-break-before: auto; }
 h2 { font-size: 12.5pt; margin: 1.8em 0 .6em; }
 h3 { font-size: 10.5pt; margin: 1.4em 0 .4em; }
@@ -24,3 +24,33 @@ code { font-family: "IPAGothic"; font-size: 9pt; }
 strong { font-family: "IPAGothic"; font-weight: normal; }
 tr { break-inside: avoid; page-break-inside: avoid; }
 thead { display: table-header-group; }
+
+/* ---- 前付け（扉・はじめに・目次）：ページ番号なし。本文の第1章を1ページ目にする ---- */
+@page front { counter-reset: page 0; @bottom-center { content: none; } }   /* 前付けの各ページで0に戻す → 第1章が1ページ目 */
+@page colophon { @bottom-center { content: none; } }
+.frontmatter { page: front; }
+h1.front { border-bottom: none; text-align: center; letter-spacing: .3em; margin-bottom: 1.6em; }
+h1#preface { page-break-before: always; }
+
+.titlepage { text-align: center; padding-top: 52mm; page-break-after: always; }
+.titlepage p { text-indent: 0; text-align: center; margin: 0; }
+.tp-title1 { font-family: "IPAGothic"; font-size: 15pt; letter-spacing: .15em; }
+.tp-title2 { font-family: "IPAGothic"; font-size: 30pt; letter-spacing: .25em; line-height: 1.6; }
+.tp-sub { display: inline-block; margin-top: 1.2em; font-size: 10pt; color: #333; }
+.tp-author { display: inline-block; margin-top: 38mm; font-family: "IPAGothic"; font-size: 12pt; letter-spacing: .2em; }
+
+ul.toc { list-style: none; padding: 0; margin: 0; font-size: 9pt; line-height: 1.6; }
+ul.toc a { color: inherit; text-decoration: none; }
+ul.toc a::after { content: leader('.') target-counter(attr(href url), page); }
+li.toc1 { font-family: "IPAGothic"; margin-top: .9em; break-after: avoid; }
+li.toc2 { padding-left: 1.5em; }
+li.toc1 a[href="#preface"]::after { content: ""; }   /* 前付けはページ番号なし */
+
+/* ---- 奥付 ---- */
+.colophon { page: colophon; page-break-before: always; padding-top: 95mm; font-size: 8.5pt; line-height: 1.7; }
+.colophon p { text-indent: 0; margin: 0 0 .6em; }
+.co-title { font-family: "IPAGothic"; font-size: 12pt; display: block; border-bottom: .75pt solid #111; padding-bottom: .3em; margin-bottom: .6em; }
+.colophon table { margin: .6em 0 1em; font-size: 8.5pt; }
+.colophon table, .colophon td { border: none; }
+.colophon td { text-align: left; padding: .1em 1.2em .1em 0; }
+.colophon thead { display: none; }
