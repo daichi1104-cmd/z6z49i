@@ -38,5 +38,5 @@
 - [x] 前付け（扉・はじめに・目次）v1：`chapters/00-front.md`。目次は build.py が h1/h2 から自動生成し、ページ番号は組版時に入る
 - [x] 奥付 v1：`chapters/99-colophon.md`
 - [ ] 〔仮〕の箇所を埋める（書名・副題・著者名・はじめにのエピソードと結び・発行日・連絡先・AI使用の文言）→ `grep -rn 〔仮〕 chapters/`
-- [ ] 表紙画像（KDP仕様）
+- [x] 表紙画像 v1：`node tools/gen_cover.js` → `build/cover.jpg`（2560×1600 px、RGB、JPEG）。書名・著者名はスクリプト冒頭の COVER を書き換える
 - [ ] Kindle Create（Print Replica）での変換と表示確認
