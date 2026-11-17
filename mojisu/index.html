@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>文字数カウント</title>
+<meta name="description" content="文章の文字数を無料でカウント。空白・改行を除いた文字数、行数、バイト数、400字詰め原稿用紙の枚数もリアルタイムで表示します。">
+<link rel="stylesheet" href="../style.css"></head><body>
+<header><a class="brand" href="../">べんりツール箱</a></header>
+<main>
+<h1>文字数カウント</h1>
+<p class="lead">文章を貼り付けると、文字数・行数・原稿用紙の枚数をすぐに表示します。</p>
+<div class="card">
+<textarea id="t" placeholder="ここに文章を入力または貼り付け"></textarea>
+<div style="margin-top:8px;display:flex;gap:8px"><button id="copy">コピー</button><button id="clear">クリア</button></div>
+</div>
+<div class="stats">
+<div class="stat"><b id="all">0</b><span>文字数（すべて）</span></div>
+<div class="stat"><b id="nows">0</b><span>空白・改行を除く</span></div>
+<div class="stat"><b id="lines">0</b><span>行数</span></div>
+<div class="stat"><b id="paras">0</b><span>段落数</span></div>
+<div class="stat"><b id="bytes">0</b><span>バイト数（UTF-8）</span></div>
+<div class="stat"><b id="sjis">0</b><span>バイト数（全角2・半角1）</span></div>
+<div class="stat"><b id="genko">0</b><span>原稿用紙（400字）</span></div>
+<div class="stat"><b id="read">0分</b><span>読む時間の目安</span></div>
+</div>
+<div class="ad">広告枠</div>
+<h2>使い方</h2>
+<p>上の入力欄に文章を入力するか、貼り付けてください。入力と同時に各数値が更新されます。入力内容はブラウザ内だけで処理され、外部に送信されません。</p>
+<h2>原稿用紙の枚数の数え方</h2>
+<p>400字詰め（20字×20行）の原稿用紙に、改行ごとに新しい行から書いた場合の枚数です。段落の最初の字下げや、句読点の行頭禁則は考えていないため、実際より少し少なめに出ることがあります。</p>
+<h2>文字数の目安</h2>
+<ul>
+<li>読書感想文（小学校高学年）：原稿用紙3〜5枚（1,200〜2,000字）</li>
+<li>大学のレポート：2,000〜4,000字程度が多い</li>
+<li>ESの自己PR：300〜400字が一般的</li>
+<li>X（旧Twitter）：全角140字まで</li>
+</ul>
+<h2>読む時間の目安</h2>
+<p>日本語の黙読の平均（1分あたり約500字）で計算しています。</p>
+</main>
+<footer><a href="../">ほかのツール</a> ・ <a href="../privacy.html">プライバシーポリシー</a></footer>
+<script>
+const t=document.getElementById('t'),$=id=>document.getElementById(id),fmt=n=>n.toLocaleString('ja-JP');
+const chars=s=>[...s].length;
+function update(){
+  const s=t.value, n=s.replace(/\r\n?/g,'\n');
+  $('all').textContent=fmt(chars(n.replace(/\n/g,'')));
+  $('nows').textContent=fmt(chars(n.replace(/[\s　]/g,'')));
+  const lines=n===''?0:n.split('\n');
+  $('lines').textContent=fmt(lines.length||0);
+  $('paras').textContent=fmt(n.split(/\n\s*\n|\n/).filter(x=>x.trim()).length);
+  $('bytes').textContent=fmt(new TextEncoder().encode(n).length);
+  let b=0;for(const c of n){if(c==='\n')continue;b+=/[\x00-\x7f｡-ﾟ]/.test(c)?1:2}
+  $('sjis').textContent=fmt(b);
+  let rows=0;if(lines)for(const l of lines)rows+=Math.max(1,Math.ceil(chars(l)/20));
+  $('genko').textContent=rows?(Math.ceil(rows/20)+'枚'):'0枚';
+  const m=chars(n.replace(/[\s　]/g,''))/500;
+  $('read').textContent=m===0?'0分':m<1?'1分未満':'約'+Math.round(m)+'分';
+  try{localStorage.setItem('mojisu',s)}catch(e){}
+}
+try{t.value=localStorage.getItem('mojisu')||''}catch(e){}
+t.addEventListener('input',update);
+$('clear').onclick=()=>{t.value='';update();t.focus()};
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText(t.value);$('copy').textContent='コピーしました';setTimeout(()=>$('copy').textContent='コピー',1500)}catch(e){}};
+update();
+</script>
+</body></html>

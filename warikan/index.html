@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>割り勘計算機</title>
+<meta name="description" content="飲み会の割り勘を簡単計算。上司は多め・学生は少なめなどの傾斜割り勘や、100円単位の端数処理に対応。結果はそのままLINEに貼れます。">
+<link rel="stylesheet" href="../style.css"></head><body>
+<header><a class="brand" href="../">べんりツール箱</a></header>
+<main>
+<h1>割り勘計算機</h1>
+<p class="lead">傾斜をつけた割り勘も、端数の処理もまとめて計算します。</p>
+<div class="card">
+<div class="row">
+<div><label for="total">合計金額（円）</label><input id="total" type="number" inputmode="numeric" placeholder="例：25800"></div>
+<div><label for="unit">集める単位</label><select id="unit"><option value="1">1円</option><option value="10">10円</option><option value="100" selected>100円</option><option value="500">500円</option><option value="1000">1000円</option></select></div>
+<div><label for="mode">端数の処理</label><select id="mode"><option value="up">切り上げ（余りは幹事へ）</option><option value="down">切り捨て（不足は幹事が負担）</option></select></div>
+</div>
+<h2 style="margin-top:20px">参加者のグループ</h2>
+<div id="groups"></div>
+<button id="add" style="margin-top:8px">＋ グループを追加</button>
+</div>
+<div class="card" id="result"></div>
+<button class="primary" id="copy">結果をコピー（LINE用）</button>
+<div class="ad">広告枠</div>
+<h2>傾斜割り勘の使い方</h2>
+<p>「上司」「一般」「学生」などのグループごとに人数と負担の比率を決めます。比率1.5なら、比率1の人の1.5倍を払います。たとえば上司1.5・一般1・学生0.5にすると、上司は多め、学生は少なめになります。</p>
+<h2>端数の処理</h2>
+<p>「切り上げ」は集める単位に切り上げて徴収し、合計を超えた分（余り）を表示します。「切り捨て」は単位に切り捨てて徴収し、足りない分を幹事が負担する計算です。</p>
+</main>
+<footer><a href="../">ほかのツール</a> ・ <a href="../privacy.html">プライバシーポリシー</a></footer>
+<script>
+const $=id=>document.getElementById(id),yen=n=>n.toLocaleString('ja-JP')+'円';
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let groups=[{name:'一般',n:4,w:1}];
+function renderGroups(){
+  $('groups').innerHTML=groups.map((g,i)=>`<div class="grp">
+  <div><label>名前</label><input data-i="${i}" data-k="name" value="${esc(g.name)}"></div>
+  <div><label>人数</label><input data-i="${i}" data-k="n" type="number" min="0" inputmode="numeric" value="${g.n}"></div>
+  <div><label>比率</label><input data-i="${i}" data-k="w" type="number" min="0" step="0.1" inputmode="decimal" value="${g.w}"></div>
+  <div>${groups.length>1?`<button data-del="${i}" aria-label="削除">削除</button>`:''}</div></div>`).join('');
+}
+let text='';
+function calc(){
+  const total=+$('total').value||0,unit=+$('unit').value,up=$('mode').value==='up';
+  const sumW=groups.reduce((a,g)=>a+(+g.n||0)*(+g.w||0),0);
+  if(!total||!sumW){$('result').innerHTML='<p class="lead" style="margin:0">合計金額と人数を入れると、ここに結果が出ます。</p>';text='';return}
+  let collected=0;const rows=groups.filter(g=>+g.n>0).map(g=>{const raw=total*(+g.w)/sumW;const p=(up?Math.ceil:Math.floor)(raw/unit-1e-9*(up?1:-1))*unit;collected+=p*(+g.n);return{...g,p}});
+  const diff=collected-total;
+  $('result').innerHTML=`<table><thead><tr><th>グループ</th><th>人数</th><th>1人あたり</th><th>小計</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.n}人</td><td><b>${yen(r.p)}</b></td><td>${yen(r.p*r.n)}</td></tr>`).join('')}</tbody></table>
+  <p style="margin:12px 0 0">集金の合計：<b>${yen(collected)}</b>（お会計 ${yen(total)}）<br>${diff>0?`余り：<b>${yen(diff)}</b>（幹事へ）`:diff<0?`不足：<b>${yen(-diff)}</b>（幹事が負担）`:'過不足なし'}</p>`;
+  text=`【割り勘】合計${yen(total)}\n`+rows.map(r=>`${r.name}：${yen(r.p)}（${r.n}人）`).join('\n')+(diff>0?`\n余り${yen(diff)}`:diff<0?`\n不足${yen(-diff)}は幹事負担`:'');
+}
+$('groups').addEventListener('input',e=>{const i=e.target.dataset.i;if(i===undefined)return;groups[i][e.target.dataset.k]=e.target.value;calc()});
+$('groups').addEventListener('click',e=>{const d=e.target.dataset.del;if(d===undefined)return;groups.splice(+d,1);renderGroups();calc()});
+$('add').onclick=()=>{groups.push({name:'グループ'+(groups.length+1),n:1,w:1});renderGroups();calc()};
+['total','unit','mode'].forEach(id=>$(id).addEventListener('input',calc));
+$('copy').onclick=async()=>{if(!text)return;try{await navigator.clipboard.writeText(text);$('copy').textContent='コピーしました';setTimeout(()=>$('copy').textContent='結果をコピー（LINE用）',1500)}catch(e){}};
+renderGroups();calc();
+</script>
+</body></html>

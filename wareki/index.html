@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>和暦西暦変換</title>
+<meta name="description" content="和暦と西暦を相互変換。令和・平成・昭和・大正・明治に対応。今年の年齢・干支がひと目でわかる年齢早見表つき。">
+<link rel="stylesheet" href="../style.css"></head><body>
+<header><a class="brand" href="../">べんりツール箱</a></header>
+<main>
+<h1>和暦⇔西暦変換・年齢早見表</h1>
+<p class="lead">令和・平成・昭和・大正・明治と西暦を変換し、年齢と干支も表示します。</p>
+<div class="card">
+<div class="row">
+<div><label for="y">西暦から変換</label><input id="y" type="number" inputmode="numeric" placeholder="例：1990"></div>
+<div><label for="era">和暦から変換</label>
+<div style="display:flex;gap:8px"><select id="era" style="flex:1"></select><input id="ey" type="number" inputmode="numeric" placeholder="年" style="flex:1"></div></div>
+</div>
+<div id="out" class="stats" style="margin-top:14px"></div>
+</div>
+<div class="ad">広告枠</div>
+<h2 id="th">年齢早見表</h2>
+<p class="lead">年齢は、今年の誕生日を迎えたあとの満年齢です。誕生日の前なら1歳引いてください。</p>
+<div class="table-wrap"><table><thead><tr><th>西暦</th><th>和暦</th><th>年齢</th><th>干支</th></tr></thead><tbody id="tb"></tbody></table></div>
+<h2>元号の切り替わり日</h2>
+<table><tbody>
+<tr><td>令和</td><td>2019年5月1日〜</td></tr>
+<tr><td>平成</td><td>1989年1月8日〜2019年4月30日</td></tr>
+<tr><td>昭和</td><td>1926年12月25日〜1989年1月7日</td></tr>
+<tr><td>大正</td><td>1912年7月30日〜1926年12月24日</td></tr>
+<tr><td>明治</td><td>1868年1月25日〜1912年7月29日</td></tr>
+</tbody></table>
+<p>元号が変わった年は、ひとつの西暦に2つの和暦があります（例：2019年は平成31年と令和元年）。書類では、その日付が切り替わり日の前か後かで使い分けます。</p>
+</main>
+<footer><a href="../">ほかのツール</a> ・ <a href="../privacy.html">プライバシーポリシー</a></footer>
+<script>
+const ERAS=[['令和',2019],['平成',1989],['昭和',1926],['大正',1912],['明治',1868]];
+const ERA_END={'平成':2019,'昭和':1989,'大正':1926,'明治':1912,'令和':9999};
+const ETO='子丑寅卯辰巳午未申酉戌亥',ETO_R='ねずみ うし とら うさぎ たつ へび うま ひつじ さる とり いぬ いのしし'.split(' ');
+const now=new Date().getFullYear(),$=id=>document.getElementById(id);
+const eraYear=n=>n===1?'元':n;
+function toWareki(y){const r=[];for(const[e,s]of ERAS)if(y>=s&&y<=ERA_END[e])r.push(e+eraYear(y-s+1)+'年');return r.join('／')||'—'}
+const eto=y=>{const i=((y-4)%12+12)%12;return ETO[i]+'（'+ETO_R[i]+'）'};
+function show(y){
+  if(!y||y<1868||y>2200){$('out').innerHTML='';return}
+  const age=now-y;
+  $('out').innerHTML=`<div class="stat"><b>${y}年</b><span>西暦</span></div><div class="stat"><b style="font-size:1.15rem">${toWareki(y)}</b><span>和暦</span></div><div class="stat"><b>${age>=0?age+'歳':'—'}</b><span>${now}年の誕生日後の年齢</span></div><div class="stat"><b style="font-size:1.15rem">${eto(y)}</b><span>干支</span></div>`;
+  document.querySelectorAll('#tb tr').forEach(tr=>tr.classList.toggle('hl',+tr.dataset.y===y));
+}
+$('era').innerHTML=ERAS.map(([e])=>`<option>${e}</option>`).join('');
+$('y').addEventListener('input',()=>{show(+$('y').value)});
+function fromEra(){const s=ERAS.find(x=>x[0]===$('era').value)[1],n=+$('ey').value;if(!n){$('out').innerHTML='';return}const y=s+n-1;$('y').value=y;show(y)}
+$('era').addEventListener('change',fromEra);$('ey').addEventListener('input',fromEra);
+$('th').textContent=now+'年の年齢早見表';
+let h='';for(let y=now;y>=now-100;y--)h+=`<tr data-y="${y}"><td>${y}年</td><td>${toWareki(y)}</td><td>${now-y}歳</td><td>${eto(y)}</td></tr>`;
+$('tb').innerHTML=h;
+</script>
+</body></html>
