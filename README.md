@@ -99,6 +99,16 @@ Python・ffmpeg・必要なライブラリ・AI モデルが自動で入りま�
 
 起動している間、PC はスリープしません（画面は消えても大丈夫です）。終わるときは黒い画面を閉じます。
 
+**新しい版に更新するとき**は、同じリンクから ZIP をダウンロードし、同じ `C:\band2score` に展開して
+「ファイルを置き換える」を選びます（準備した `.venv` はそのまま残るので、setup.bat のやり直しは不要です）。
+
+**「ブロックされました」と出るとき**
+
+- ダウンロードした ZIP を右クリック →「プロパティ」→ 一番下の「許可する」にチェック →「OK」としてから展開し直してください
+- 起動時に「アプリケーション制御ポリシーによってこのファイルがブロックされました」と出た場合は、
+  Windows 11 の「スマート アプリ コントロール」が部品を止めています。
+  `windows\check.bat` をダブルクリックすると、どの部品が止められているかを一覧で確かめられます
+
 ### 外出先からも使う（Tailscale・無料）
 
 [Tailscale](https://tailscale.com/download) を **PC とスマホの両方**に入れ、**同じアカウント**でログインします。
@@ -236,10 +246,12 @@ band2score/
   score.py       楽譜（MusicXML）と MIDI の生成
   models.py      データ型と楽器ごとの設定
   pipeline.py    処理の流れ（コマンドと Web アプリで共通）
+  check.py       使う部品を読み込めるかの確認
   web/           スマホ用の Web アプリ（server.py・static/ の画面）
 windows/
   setup.bat      Windows での準備（最初に 1回）
   start.bat      Windows での起動
+  check.bat      使う部品をこの PC で読み込めるかの確認
 tests/
   make_test_song.py  テスト音源の生成（テンポの揺れ・弱起つき）
   benchmark.py       条件ごとの精度の測定

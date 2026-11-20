@@ -14,13 +14,13 @@ band2score = "band2score.cli:main"
 band2score-web = "band2score.web.__main__:main"
 
 [project.optional-dependencies]
-web = ["fastapi", "uvicorn", "python-multipart", "verovio", "qrcode"]
+web = ["fastapi", "uvicorn", "python-multipart", "qrcode"]
 
 [tool.setuptools]
 packages = ["band2score", "band2score.web"]
 
 [tool.setuptools.package-data]
-"band2score.web" = ["static/*"]
+"band2score.web" = ["static/*", "static/vendor/verovio/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

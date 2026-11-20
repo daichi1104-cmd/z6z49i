@@ -292,26 +292,51 @@ function buildViewParts(r) {
 $("zoom-in").addEventListener("click", () => { state.zoom = Math.min(200, state.zoom + 20); renderScore(); });
 $("zoom-out").addEventListener("click", () => { state.zoom = Math.max(40, state.zoom - 20); renderScore(); });
 
+// 楽譜の描画はスマホのブラウザで行う（verovio の WebAssembly 版。初回だけ読み込む）
+let verovioPromise = null;
+function loadVerovio() {
+  if (!verovioPromise) {
+    verovioPromise = (async () => {
+      const [{ default: createVerovioModule }, { VerovioToolkit }] = await Promise.all([
+        import("/static/vendor/verovio/verovio-module.mjs"),
+        import("/static/vendor/verovio/verovio.mjs"),
+      ]);
+      return new VerovioToolkit(await createVerovioModule());
+    })();
+    verovioPromise.catch(() => { verovioPromise = null; });  // 失敗したら次はやり直す
+  }
+  return verovioPromise;
+}
+
+const scoreCache = new Map();  // パートの選び方ごとの MusicXML
 let renderToken = 0;
 async function renderScore() {
   const token = ++renderToken;
   const box = $("score");
   box.innerHTML = "";
-  $("score-status").textContent = "楽譜を読み込んでいます…";
-  const width = Math.round(box.clientWidth || window.innerWidth);
-  const parts = state.parts ? encodeURIComponent(state.parts.join(",")) : "";
-  const url = (page) => `/api/jobs/${state.job.id}/score.svg?page=${page}&width=${width}&zoom=${state.zoom}&parts=${parts}`;
+  const parts = state.parts ? state.parts.join(",") : "";
+  const key = `${state.job.id}|${parts}`;
   try {
-    const first = await api(url(1));
+    $("score-status").textContent = verovioPromise ? "楽譜を読み込んでいます…" : "楽譜の表示部品を読み込んでいます…（初回のみ・少し時間がかかります）";
+    const [tk, xml] = await Promise.all([
+      loadVerovio(),
+      scoreCache.get(key) ?? api(`/api/jobs/${state.job.id}/view.musicxml?parts=${encodeURIComponent(parts)}`)
+        .then((r) => r.text()).then((t) => { scoreCache.set(key, t); return t; }),
+    ]);
     if (token !== renderToken) return;
-    const pages = Number(first.headers.get("X-Pages") || 1);
-    addPage(box, await first.text());
-    for (let p = 2; p <= pages; p++) {
-      const holder = addPage(box, null);
-      const svg = await (await api(url(p))).text();
+    const width = Math.max(320, Math.round(box.clientWidth || window.innerWidth));
+    const scale = Math.round(state.zoom * 0.32);  // zoom 100 でスマホの幅に 2〜3小節入る大きさ
+    tk.setOptions({
+      pageWidth: Math.round(width * 100 / scale), pageHeight: Math.round(width * 100 / scale * 1.4),
+      scale, adjustPageHeight: true, breaks: "auto", footer: "none", header: "auto",
+      svgViewBox: true, svgHtml5: true,
+    });
+    if (!tk.loadData(xml)) throw new Error("楽譜を読み込めませんでした");
+    const pages = tk.getPageCount();
+    for (let p = 1; p <= pages; p++) {
+      addPage(box, tk.renderToSVG(p));
+      if (p < pages) await new Promise((r) => setTimeout(r, 0));  // 長い曲でも画面が固まらないように
       if (token !== renderToken) return;
-      holder.classList.remove("loading");
-      holder.innerHTML = svg;
     }
     $("score-status").textContent = pages > 1 ? `${pages} ページ` : "";
   } catch (e) {

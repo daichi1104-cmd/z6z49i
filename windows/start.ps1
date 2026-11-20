@@ -23,4 +23,8 @@ Add-Type -Namespace B2S -Name Power -MemberDefinition @"
 [void][B2S.Power]::SetThreadExecutionState([uint32]2147483649)  # 0x80000001 = ES_CONTINUOUS | ES_SYSTEM_REQUIRED
 Write-Host "（起動している間、この PC はスリープしません。画面は消えても大丈夫です）" -ForegroundColor DarkGray
 
+# 使う部品が Windows に止められていないか、起動の前に確かめる
+& $venvPy -m band2score.check --quiet
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
 & $venvPy -m band2score.web @args

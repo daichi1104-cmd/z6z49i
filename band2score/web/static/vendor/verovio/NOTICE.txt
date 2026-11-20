@@ -1,0 +1,7 @@
+Verovio 6.4.1 (npm package "verovio": dist/verovio-module.mjs, dist/verovio.mjs)
+Music notation engraving library. Copyright (c) the Verovio authors (RISM Digital Center).
+Licensed under the GNU Lesser General Public License v3.0 only (LGPL-3.0-only):
+  https://www.gnu.org/licenses/lgpl-3.0.html
+Source code: https://github.com/rism-digital/verovio
+These files are distributed unmodified. You may replace them with any compatible
+version of the library (npm pack verovio) without changing band2score.

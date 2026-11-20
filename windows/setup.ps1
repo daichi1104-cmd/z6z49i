@@ -92,6 +92,10 @@ if (-not $exists) {
     }
 }
 
+Say "使う部品を読み込めるか確かめています"
+& $venvPy -m band2score.check
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
 Write-Host ""
 Write-Host "準備ができました！" -ForegroundColor Green
 Write-Host "次からは同じフォルダの start.bat をダブルクリックすると起動します。"

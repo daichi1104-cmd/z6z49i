@@ -19,5 +19,4 @@ music21>=9
 fastapi
 uvicorn
 python-multipart
-verovio
 qrcode

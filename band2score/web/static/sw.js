@@ -1,6 +1,6 @@
 // ホーム画面に追加して使えるようにするための Service Worker。
 // 画面の部品だけを保存し、変換や楽譜の取得（/api/）は毎回サーバーに問い合わせる。
-const CACHE = "band2score-v1";
+const CACHE = "band2score-v2";
 const SHELL = ["/", "/static/app.css", "/static/app.js", "/static/icon-192.png", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

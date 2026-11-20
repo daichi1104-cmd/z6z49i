@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import json
 import logging
+import mimetypes
 import os
 import queue
 import shutil
@@ -28,12 +29,18 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from ..models import PART_ORDER, STEM_SETTINGS
 from ..pipeline import TOTAL_STEPS, Options, PipelineError, run
 
 log = logging.getLogger("band2score.web")
+# Windows ではレジストリの設定で .js が text/plain として送られることがあり、
+# そうなるとブラウザが描画部品（JavaScript のモジュール）を読み込まないので明示する
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 STATIC = Path(__file__).parent / "static"
 AUDIO_TYPES = {".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".webm", ".aiff",
                ".aif", ".mp4", ".mov", ".caf", ".wma"}
@@ -179,10 +186,11 @@ def create_app(data_dir: Path | None = None, password: str | None = None,
     if test_stems is None and os.environ.get("BAND2SCORE_TEST_STEMS"):
         test_stems = Path(os.environ["BAND2SCORE_TEST_STEMS"])
 
-    init_renderer()
     manager = JobManager(data_dir, keep_hours, test_stems)
     token = hmac.new(b"band2score", (password or "").encode(), hashlib.sha256).hexdigest()
     app = FastAPI(title="band2score", docs_url=None, redoc_url=None)
+    # 楽譜の描画部品（約 7MB）などを圧縮して送る
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.state.manager = manager
 
     def authed(request: Request) -> bool:
@@ -283,54 +291,15 @@ def create_app(data_dir: Path | None = None, password: str | None = None,
                  "chords": "text/plain; charset=utf-8", "pdf": "application/pdf"}[kind]
         return FileResponse(path, media_type=media, filename=path.name)
 
-    @app.get("/api/jobs/{job_id}/score.svg")
-    def score_svg(job_id: str, page: int = 1, width: int = 800, zoom: int = 100,
-                  parts: str = ""):
-        """楽譜を画面の幅に合わせて SVG で返す（parts で表示するパートを選べる）。"""
+    @app.get("/api/jobs/{job_id}/view.musicxml")
+    def score_view(job_id: str, parts: str = ""):
+        """画面に表示する楽譜（parts で選んだパートだけ）。描画はスマホのブラウザで行う。"""
         xml = manager.file(job_id, "musicxml")
-        svg, pages = render_svg(xml, page, width, zoom, parts)
-        return Response(svg, media_type="image/svg+xml",
-                        headers={"X-Pages": str(pages), "Cache-Control": "no-store",
-                                 "Access-Control-Expose-Headers": "X-Pages"})
+        source = _part_subset(xml, parts) if parts else xml.read_text(encoding="utf-8")
+        return Response(source, media_type="application/xml; charset=utf-8",
+                        headers={"Cache-Control": "no-store"})
 
     return app
-
-
-_render_lock = threading.Lock()
-_toolkit = None
-
-
-def init_renderer() -> None:
-    """楽譜描画（verovio）を用意する。必ずメインスレッドで呼ぶこと。
-
-    verovio はメインスレッド以外で作ったツールキットだとフォントを読み込めないため、
-    起動時に 1つ作って使い回す（使うときはロックして 1つずつ）。
-    """
-    global _toolkit
-    if _toolkit is None:
-        import verovio
-
-        _toolkit = verovio.toolkit()
-
-
-def render_svg(xml: Path, page: int, width: int, zoom: int, parts: str) -> tuple[str, int]:
-    init_renderer()
-    source = _part_subset(xml, parts) if parts else xml.read_text(encoding="utf-8")
-    width = max(320, min(width, 2400))
-    zoom = max(30, min(zoom, 200))
-    with _render_lock:  # verovio のツールキットは同時に使わない
-        tk = _toolkit
-        scale = zoom * 0.32  # zoom 100 でスマホの幅に 2〜3小節入る大きさ
-        tk.setOptions({
-            "pageWidth": int(width * 100 / scale), "pageHeight": int(width * 100 / scale * 1.4),
-            "scale": int(scale), "adjustPageHeight": True, "breaks": "auto",
-            "footer": "none", "header": "auto", "svgViewBox": True, "svgHtml5": True,
-        })
-        if not tk.loadData(source):
-            raise HTTPException(500, "楽譜を表示できませんでした")
-        pages = tk.getPageCount()
-        page = max(1, min(page, pages))
-        return tk.renderToSVG(page), pages
 
 
 def _part_subset(xml: Path, parts: str) -> str:

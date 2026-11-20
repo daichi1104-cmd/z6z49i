@@ -48,11 +48,14 @@ def test_upload_convert_view_and_download(tmp_path: Path, song: Path):
     assert r["tempo"] == 120 and r["chords"][:4] == ["C", "Am", "F", "G"]
     assert set(r["files"]) >= {"musicxml", "midi", "chords"}
 
-    svg = client.get(f"/api/jobs/{job['id']}/score.svg?width=390")
-    assert svg.status_code == 200 and svg.text.lstrip().startswith("<svg")
-    assert int(svg.headers["X-Pages"]) >= 1
-    bass = client.get(f"/api/jobs/{job['id']}/score.svg?width=390&parts=Bass")
+    view = client.get(f"/api/jobs/{job['id']}/view.musicxml")
+    assert view.status_code == 200 and "score-partwise" in view.text and "Vocals" in view.text
+    bass = client.get(f"/api/jobs/{job['id']}/view.musicxml?parts=Bass")
     assert bass.status_code == 200 and "Vocals" not in bass.text
+    assert "<harmony" in bass.text  # ベースだけでもコードネームが付く
+    js = client.get("/static/vendor/verovio/verovio.mjs", headers={"Accept-Encoding": "gzip"})
+    assert js.status_code == 200 and "javascript" in js.headers["content-type"]
+    assert js.headers.get("content-encoding") == "gzip"
 
     xml = client.get(f"/api/jobs/{job['id']}/files/musicxml")
     assert xml.status_code == 200 and b"score-partwise" in xml.content
