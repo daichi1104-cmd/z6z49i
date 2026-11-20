@@ -58,6 +58,18 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 }
 Write-Host "ffmpeg: OK"
 
+# 2.5 Visual C++ ランタイム（llvmlite など、一部の部品が必要とする Microsoft の基本部品）
+$sys32 = Join-Path $env:SystemRoot "System32"
+$vcOk = (Test-Path (Join-Path $sys32 "msvcp140.dll")) -and (Test-Path (Join-Path $sys32 "vcruntime140_1.dll"))
+if (-not $vcOk) {
+    Say "Visual C++ ランタイム（Microsoft の基本部品）を入れています"
+    if (HasWinget) {
+        winget install -e --id Microsoft.VCRedist.2015+.x64 --accept-package-agreements --accept-source-agreements
+    } else {
+        Write-Host "https://aka.ms/vs/17/release/vc_redist.x64.exe から入れてください。" -ForegroundColor Yellow
+    }
+}
+
 # 3. 仮想環境とライブラリ
 Say "3/5 必要なライブラリを入れています（いちばん時間がかかります）"
 $venvPy = Join-Path $root ".venv\Scripts\python.exe"
