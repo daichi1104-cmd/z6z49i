@@ -1,18 +1,23 @@
 """Web アプリを起動する: python -m band2score.web
 
 同じ Wi-Fi につないだスマホから、表示される URL（または QR コード）を開くと使えます。
+この PC とスマホに Tailscale を入れておくと、外出先からも使えます。
 """
 
 from __future__ import annotations
 
 import argparse
+import ipaddress
+import json
 import logging
 import os
+import shutil
 import socket
+import subprocess
 
 
 def lan_addresses() -> list[str]:
-    """この PC の、同じネットワークの機器から見える IP アドレス。"""
+    """この PC の、同じネットワークの機器から見える IP アドレス（Tailscale のものは除く）。"""
     found = []
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -28,7 +33,41 @@ def lan_addresses() -> list[str]:
                 found.append(ip)
     except OSError:
         pass
-    return found
+    return [ip for ip in found if not is_tailscale_ip(ip)]
+
+
+def is_tailscale_ip(ip: str) -> bool:
+    """Tailscale が使うアドレス（100.64.0.0/10）か。"""
+    try:
+        return ipaddress.ip_address(ip) in ipaddress.ip_network("100.64.0.0/10")
+    except ValueError:
+        return False
+
+
+TAILSCALE_PATHS = [
+    r"C:\Program Files\Tailscale\tailscale.exe",
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+]
+
+
+def tailscale_address() -> str | None:
+    """Tailscale につながっていれば、外出先のスマホから使えるこの PC の名前（または IP）を返す。"""
+    exe = shutil.which("tailscale") or next((p for p in TAILSCALE_PATHS if os.path.exists(p)), None)
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, "status", "--json"], capture_output=True, text=True, timeout=5)
+        status = json.loads(out.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if status.get("BackendState") != "Running":
+        return None
+    me = status.get("Self") or {}
+    name = (me.get("DNSName") or "").rstrip(".")
+    if name and status.get("MagicDNSSuffix"):
+        return name
+    ips = [ip for ip in me.get("TailscaleIPs") or [] if "." in ip]
+    return ips[0] if ips else None
 
 
 def main() -> None:
@@ -45,21 +84,35 @@ def main() -> None:
 
     from .server import create_app
 
-    print("\nband2score を起動しました。スマホのブラウザで次の URL を開いてください（同じ Wi-Fi が必要です）:\n")
-    urls = [f"http://{ip}:{a.port}" for ip in lan_addresses()] if a.host == "0.0.0.0" else []
-    urls = urls or [f"http://{a.host}:{a.port}"]
-    for url in urls:
-        print(f"    {url}")
-    try:
-        import qrcode
+    lan = [f"http://{ip}:{a.port}" for ip in lan_addresses()] if a.host == "0.0.0.0" else []
+    ts = tailscale_address() if a.host == "0.0.0.0" else None
+    ts_url = f"http://{ts}:{a.port}" if ts else None
 
-        qr = qrcode.QRCode(border=1)
-        qr.add_data(urls[0])
-        print("\nスマホのカメラでこの QR コードを読み取っても開けます:\n")
-        qr.print_ascii(invert=True)
-    except ImportError:
-        pass
-    print("\nこの PC では http://localhost:%d でも開けます。終了するときは Ctrl+C。\n" % a.port)
+    print("\nband2score を起動しました。スマホのブラウザで次の URL を開いてください。\n")
+    if ts_url:
+        print("  ● どこからでも（スマホでも Tailscale をオンにしておく）:")
+        print(f"      {ts_url}")
+    if lan:
+        print("  ● 家の中で（PC と同じ Wi-Fi のとき）:")
+        for url in lan:
+            print(f"      {url}")
+    if not ts_url and not lan:
+        print(f"      http://{a.host}:{a.port}")
+    if not ts_url and a.host == "0.0.0.0":
+        print("\n  （外出先からも使うには、この PC とスマホに Tailscale を入れて同じアカウントでログインしてください）")
+    qr_url = ts_url or (lan[0] if lan else None)
+    if qr_url:
+        try:
+            import qrcode
+
+            qr = qrcode.QRCode(border=1)
+            qr.add_data(qr_url)
+            print(f"\nスマホのカメラでこの QR コードを読み取ると開けます（{qr_url}）:\n")
+            qr.print_ascii(invert=True)
+        except ImportError:
+            pass
+    print("\nこの PC では http://localhost:%d でも開けます。" % a.port)
+    print("終了するときはこの画面を閉じるか Ctrl+C。PC がスリープすると使えなくなります。\n")
     uvicorn.run(create_app(), host=a.host, port=a.port, log_level="warning")
 
 

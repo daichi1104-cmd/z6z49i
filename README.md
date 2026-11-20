@@ -72,26 +72,58 @@ AI の処理が重いので、変換は PC（またはクラウドのサーバ�
 <img src="docs/phone_chords.png" width="200" alt="コード表の画面">
 </p>
 
-### 自宅の PC で動かす（同じ Wi-Fi のスマホから使う）
+### Windows の PC で動かす（おすすめ）
 
-```bash
-python -m band2score.web
-```
+**1. ダウンロード**（最初の 1回だけ）
 
-表示された URL（`http://192.168.x.x:8000` のような形）をスマホのブラウザで開くか、
-表示される QR コードをスマホのカメラで読み取ってください。PC とスマホが同じ Wi-Fi につながっている必要があります。
+1. GitHub にログインした状態で
+   [このリンク](https://github.com/daichi1104-cmd/z6z49i/archive/refs/heads/ccr-f8916d56-jny3h7.zip)
+   から ZIP をダウンロードする
+2. ZIP を右クリック →「すべて展開」で、**`C:\band2score`** に展開する
+   （デスクトップや OneDrive の中、日本語の名前のフォルダは避けてください）
+
+**2. 準備**（最初の 1回だけ・10〜30分）
+
+展開したフォルダの中の `windows\setup.bat` をダブルクリックします。
+Python・ffmpeg・必要なライブラリ・AI モデルが自動で入ります。
+途中で「このアプリがデバイスに変更を加えることを許可しますか？」と出たら「はい」を押してください。
+「Windows によって PC が保護されました」と出たら「詳細情報」→「実行」を押します。
+
+**3. 起動**（使うたびに）
+
+`windows\start.bat` をダブルクリックすると、スマホで開く URL と QR コードが表示されます。
+スマホのカメラで QR コードを読み取って開き、ホーム画面に追加してください。
 
 - **iPhone**: Safari で開き、共有ボタン →「ホーム画面に追加」
 - **Android**: Chrome で開き、メニュー（︙）→「ホーム画面に追加」
 
-できること:
+起動している間、PC はスリープしません（画面は消えても大丈夫です）。終わるときは黒い画面を閉じます。
+
+### 外出先からも使う（Tailscale・無料）
+
+[Tailscale](https://tailscale.com/download) を **PC とスマホの両方**に入れ、**同じアカウント**でログインします。
+自分の機器どうしだけをつなぐ仕組みなので、他の人からは使えません。
+
+そのあと `start.bat` で起動すると「どこからでも」の URL（`http://PCの名前.xxxx.ts.net:8000` のような形）が表示され、
+QR コードもその URL になります。この URL をホーム画面に追加すれば、家でも外出先でも同じアイコンから使えます
+（スマホの Tailscale アプリをオンにしておいてください）。PC は家で電源を入れたままにしておきます。
+
+### Mac・Linux の場合
+
+```bash
+pip install -r requirements.txt && pip install --no-deps basic-pitch
+python -m band2score.web
+```
+
+### できること
+
 - 音源を選ぶ（ボイスメモの m4a、mp3、wav など。スマホで録った練習の録音もそのまま使えます）
 - 進み具合を見る（画面を閉じても処理は続き、「これまでの楽譜」から開き直せます）
 - 楽譜を見る（パートを選んで表示・拡大縮小。ベースだけ表示してもコードネームは付きます）
 - 小節ごとのコード表を見る
 - MusicXML・MIDI・コード表を保存する（MusicXML は MuseScore アプリで開けます）
 
-### 外出先からも使う（クラウドに置く）
+### クラウドに置く（上級者向け）
 
 `Dockerfile` があるので、Docker が動くサーバーならどこでも動かせます。
 
@@ -100,31 +132,8 @@ docker build -t band2score .
 docker run -p 7860:7860 -e BAND2SCORE_PASSWORD=好きな合言葉 band2score
 ```
 
-[Hugging Face Spaces](https://huggingface.co/spaces) の無料の CPU サーバーで動かせます（3〜4分の曲で 5〜10分ほどかかります）。
-
-**PC を使わずに置く（スマホのブラウザだけでできます）**
-
-1. [huggingface.co](https://huggingface.co) でアカウントを作り、Settings → Access Tokens →
-   「Create new token」で、種類を **Write** にしてトークンを作る
-2. この GitHub リポジトリの Settings → Secrets and variables → Actions →
-   「New repository secret」で、名前 `HF_TOKEN`、値に 1 のトークンを貼って保存する
-3. Actions タブ →「Deploy to Hugging Face Spaces」の一番上の実行を開き、右上の「Re-run all jobs」を押す
-   （main ブランチに取り込んだあとは「Run workflow」ボタンからも実行できます。
-   以後は、プログラムを更新するたびに自動で Space も更新されます）
-4. Hugging Face の Space（`あなたのユーザー名/band2score`）の Settings → Variables and secrets →
-   「New secret」で、名前 `BAND2SCORE_PASSWORD`、値を好きなパスワードにして保存する
-
-パスワードを設定するまでは、アプリは「パスワードを設定してください」と表示して使えないようになっています。
-
-**PC から置く場合**は、Write 権限のトークンを用意して次を実行します。
-
-```bash
-pip install huggingface_hub
-HF_TOKEN=hf_xxx python deploy/huggingface.py あなたのユーザー名/band2score
-```
-
-10〜20分ほどでビルドが終わり、`https://あなたのユーザー名-band2score.hf.space` で使えるようになります。
-無料の Space は 48時間使わないと休止し、次に開いたときに 1分ほどで起き上がります。
+Hugging Face Spaces に置くスクリプト（`deploy/huggingface.py`、GitHub Actions の「Deploy to Hugging Face Spaces」）もありますが、
+**Hugging Face の Docker の Space は PRO（有料）の契約が必要です**（無料のアカウントでは作れません）。
 
 **ネットに公開するときは、必ず `BAND2SCORE_PASSWORD` を設定してください。** 設定しないと、URL を知っている人なら誰でも使えてしまいます。
 
@@ -228,6 +237,9 @@ band2score/
   models.py      データ型と楽器ごとの設定
   pipeline.py    処理の流れ（コマンドと Web アプリで共通）
   web/           スマホ用の Web アプリ（server.py・static/ の画面）
+windows/
+  setup.bat      Windows での準備（最初に 1回）
+  start.bat      Windows での起動
 tests/
   make_test_song.py  テスト音源の生成（テンポの揺れ・弱起つき）
   benchmark.py       条件ごとの精度の測定

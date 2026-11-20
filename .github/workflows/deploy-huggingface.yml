@@ -1,17 +1,10 @@
-# band2score を Hugging Face Spaces に置く（更新する）。
-# リポジトリの Settings → Secrets and variables → Actions に HF_TOKEN（Write 権限の
-# Hugging Face トークン）を登録すると動きます。登録されていなければ何もしません。
+# band2score を Hugging Face Spaces に置く（更新する）。手動で実行したときだけ動きます。
+# 注意: Hugging Face の Docker の Space は、PRO（有料）の契約が必要です。
+# 使うときは、リポジトリの Settings → Secrets and variables → Actions に HF_TOKEN（Write 権限の
+# Hugging Face トークン）を登録し、Actions タブから「Run workflow」で実行してください。
 name: Deploy to Hugging Face Spaces
 
 on:
-  push:
-    branches: [main, ccr-f8916d56-jny3h7]
-    paths:
-      - "band2score/**"
-      - "Dockerfile"
-      - "requirements.txt"
-      - "deploy/**"
-      - ".github/workflows/deploy-huggingface.yml"
   workflow_dispatch:
 
 concurrency:
