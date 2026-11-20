@@ -75,6 +75,24 @@ def _templates() -> tuple[list[tuple[int, str, tuple[int, ...]]], np.ndarray, np
     return labels, np.array(mats), np.array(weights)
 
 
+def harmonic(y: np.ndarray, kernel_size: int = 31) -> np.ndarray:
+    """打楽器っぽい成分を減らした音（librosa.effects.harmonic と同じ計算）。
+
+    librosa の関数は、使わない scikit-learn まで読み込む。Windows の「スマート アプリ コントロール」が
+    scikit-learn の部品を止めるとそこで失敗するので、同じ手順を自分で書いている。
+    横方向（時間）に滑らかな成分を「和音・メロディ」、縦方向（周波数）に広がる成分を「打楽器」とみなし、
+    その比で音を分ける（HPSS）。
+    """
+    from scipy.ndimage import median_filter
+
+    stft = librosa.stft(y)
+    magnitude, phase = librosa.magphase(stft)
+    harm = median_filter(magnitude, size=(1, kernel_size), mode="reflect")
+    perc = median_filter(magnitude, size=(kernel_size, 1), mode="reflect")
+    mask = librosa.util.softmask(harm, perc, power=2.0, split_zeros=True)
+    return librosa.istft((magnitude * mask) * phase, dtype=y.dtype, length=y.shape[-1])
+
+
 def _load_mix(paths: list[Path]) -> np.ndarray:
     mix = None
     for p in paths:
@@ -149,7 +167,7 @@ def detect_chords(harmony_paths: list[Path], grid: BeatGrid,
     y = _load_mix(harmony_paths)
     if not np.any(y):
         return []
-    y = librosa.effects.harmonic(y)  # 打楽器っぽい成分を減らす
+    y = harmonic(y)  # 打楽器っぽい成分を減らす
     duration = len(y) / SR
 
     # 区切り（楽譜と同じ拍の格子を使う）

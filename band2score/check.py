@@ -15,12 +15,49 @@ import sys
 from pathlib import Path
 
 # (表示名, 確かめ方) — 確かめ方は import するモジュール名か、実際に少し動かす関数
+# 変換の途中で読み込まれる scipy の部品（実際の変換で読み込まれるものを調べて並べた）
+SCIPY_PARTS = ["fft", "fftpack", "integrate", "interpolate", "io", "linalg", "ndimage", "optimize",
+               "signal", "sparse", "spatial", "special", "stats"]
+
+
+def _import_all(prefix: str, parts: list[str]) -> None:
+    """部品をまとめて読み込み、読めなかったものを全部並べてエラーにする。"""
+    errors = []
+    for part in parts:
+        try:
+            importlib.import_module(f"{prefix}.{part}")
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{prefix}.{part}: {type(e).__name__}: {e}")
+    if errors:
+        raise ImportError(" / ".join(errors))
+
+
+def _librosa_trial() -> None:
+    """librosa で、変換と同じ種類の計算を短い音で試す（途中で読み込まれる部品も確かめられる）。"""
+    import numpy as np
+    import librosa
+
+    from .chords import harmonic
+
+    sr = 22050
+    t = np.arange(sr * 2) / sr
+    y = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    y[:: sr // 2] += 1.0
+    env = librosa.onset.onset_strength(y=y, sr=sr, hop_length=256)
+    librosa.onset.onset_detect(onset_envelope=env, sr=sr, hop_length=256)
+    librosa.beat.beat_track(onset_envelope=env, sr=sr, hop_length=256)
+    librosa.feature.chroma_cqt(y=harmonic(y), sr=sr)
+    librosa.sequence.viterbi(np.full((3, 10), 1 / 3), librosa.sequence.transition_loop(3, 0.8))
+
+
 CHECKS = [
     ("numpy（数値計算）", "numpy"),
-    ("scipy（信号処理）", "scipy.signal"),
+    ("scipy（信号処理など）", lambda: _import_all("scipy", SCIPY_PARTS)),
     ("soundfile（音声ファイルの読み書き）", "soundfile"),
+    ("soxr（音声の変換）", "soxr"),
     ("numba（librosa の高速化）", lambda: __import__("numba").njit(lambda x: x + 1)(1)),
     ("librosa（テンポ・コードの解析）", "librosa"),
+    ("librosa の計算（試し）", _librosa_trial),
     ("torch（AI の計算）", "torch"),
     ("demucs（楽器ごとに音を分ける AI）", "demucs.api"),
     ("onnxruntime（採譜 AI の計算）", "onnxruntime"),

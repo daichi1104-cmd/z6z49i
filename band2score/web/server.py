@@ -23,6 +23,7 @@ import queue
 import shutil
 import threading
 import time
+import traceback
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -140,10 +141,12 @@ class JobManager:
                 job.status, job.message = "done", "できあがりました"
             except PipelineError as e:
                 job.status, job.error = "error", str(e)
-            except Exception as e:  # 想定外の失敗も、利用者には分かる言葉で返す
+            except Exception as e:  # 想定外の失敗も、原因が分かるように返す
                 log.exception("job %s failed", job.id)
+                (self.data_dir / job.id / "error.log").write_text(traceback.format_exc(),
+                                                                encoding="utf-8")
                 job.status = "error"
-                job.error = f"変換中にエラーが起きました（{type(e).__name__}）。別のファイルでお試しください。"
+                job.error = describe_error(e)
             finally:
                 job.finished = time.time()
                 self._save(job)
@@ -168,6 +171,20 @@ class JobManager:
         if not name:
             raise HTTPException(404, "このファイルはありません")
         return self.data_dir / job_id / "out" / name
+
+
+BLOCKED_HINTS = ("アプリケーション制御ポリシー", "Application Control", "application control", "4551")
+
+
+def describe_error(e: Exception) -> str:
+    """変換の失敗を、スマホの画面に出せる短い説明にする（原因の手がかりも残す）。"""
+    detail = f"{type(e).__name__}: {e}".replace("\n", " ")
+    if len(detail) > 240:
+        detail = detail[:240] + "…"
+    if any(h in detail for h in BLOCKED_HINTS):
+        return ("Windows の「スマート アプリ コントロール」に部品が止められたため、変換できませんでした。"
+                f"PC で windows\\check.bat を実行して、表示された画面を確かめてください。（{detail}）")
+    return f"変換中にエラーが起きました。（{detail}）"
 
 
 def create_app(data_dir: Path | None = None, password: str | None = None,

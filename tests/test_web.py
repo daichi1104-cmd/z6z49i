@@ -88,3 +88,28 @@ def test_locked_when_public_without_password(tmp_path: Path, song: Path):
     assert res.status_code == 503
     ok = _client(tmp_path / "b", song, require_password=True, password="pw")
     assert not ok.get("/api/config").json()["locked"]
+
+
+def test_failed_job_shows_cause_and_writes_log(tmp_path: Path, song: Path, monkeypatch):
+    import band2score.web.server as server
+
+    def blocked(*args, **kwargs):
+        raise ImportError("DLL load failed while importing _nd_image: "
+                          "アプリケーション制御ポリシーによってこのファイルがブロックされました。")
+
+    monkeypatch.setattr(server, "run", blocked)
+    client = _client(tmp_path, song)
+    with open(song / "test_band.wav", "rb") as f:
+        job_id = client.post("/api/jobs", files={"audio": ("a.wav", f, "audio/wav")}).json()["id"]
+    job = _wait(client, job_id)
+    assert job["status"] == "error"
+    assert "スマート アプリ コントロール" in job["error"] and "_nd_image" in job["error"]
+    log = (tmp_path / "data" / job_id / "error.log").read_text(encoding="utf-8")
+    assert "Traceback" in log and "_nd_image" in log
+
+
+def test_describe_error_keeps_the_cause_short():
+    from band2score.web.server import describe_error
+
+    msg = describe_error(ValueError("x" * 1000))
+    assert msg.startswith("変換中にエラーが起きました。") and "ValueError" in msg and len(msg) < 300
