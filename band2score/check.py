@@ -92,6 +92,13 @@ def run(quiet: bool = False) -> int:
         else:
             if not quiet:
                 print(f"  OK  {name}")
+    from . import numba_fallback
+
+    if numba_fallback.ACTIVE:
+        print("  ※ numba はこの PC では読み込めないため、代わりの部品で動いています"
+              "（結果は同じで、少し遅くなるだけです）")
+        if not quiet:
+            print(f"     理由: {numba_fallback.REASON[:200]}")
     if not shutil.which("ffmpeg"):
         failed.append(("ffmpeg", "見つかりません"))
         print("  NG  ffmpeg（スマホの録音 m4a などを読む）: 見つかりません")

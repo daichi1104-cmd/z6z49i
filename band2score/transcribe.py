@@ -21,6 +21,11 @@ def transcribe_pitched(audio_path: Path, settings: StemSettings) -> list[NoteEve
     level = root.level
     root.setLevel(logging.ERROR)
     try:
+        import onnxruntime
+
+        # 採譜 AI の計算部品が Microsoft に利用状況を送ろうとするので止める（このアプリには不要）
+        if hasattr(onnxruntime, "disable_telemetry_events"):
+            onnxruntime.disable_telemetry_events()
         from basic_pitch.inference import predict
     finally:
         root.setLevel(level)

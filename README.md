@@ -108,6 +108,8 @@ Python・ffmpeg・必要なライブラリ・AI モデルが自動で入りま�
 - 起動時に「アプリケーション制御ポリシーによってこのファイルがブロックされました」と出た場合は、
   Windows 11 の「スマート アプリ コントロール」が部品を止めています。
   `windows\check.bat` をダブルクリックすると、どの部品が止められているかを一覧で確かめられます
+- numba（llvmlite.dll）が止められた PC では、自動で「代わりの部品」（`band2score/numba_fallback.py`）に切り替わります。
+  結果は本物の numba と同じで、4分の曲で数秒遅くなるだけです
 
 ### 外出先からも使う（Tailscale・無料）
 
@@ -247,6 +249,7 @@ band2score/
   models.py      データ型と楽器ごとの設定
   pipeline.py    処理の流れ（コマンドと Web アプリで共通）
   check.py       使う部品を読み込めるかの確認
+  numba_fallback.py  numba を読み込めない PC 用の代わりの部品
   web/           スマホ用の Web アプリ（server.py・static/ の画面）
 windows/
   setup.bat      Windows での準備（最初に 1回）
@@ -260,4 +263,5 @@ tests/
   test_rhythm.py     テスト（拍の格子・小節の頭）
   test_end_to_end.py テスト（いちばん難しい条件で分離以降を通す）
   test_web.py        テスト（Web アプリの API）
+  test_numba_fallback.py テスト（numba の代わりの部品が本物と同じ結果になるか）
 ```
